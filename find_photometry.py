@@ -10,13 +10,23 @@ TODO:
  - account for differences in BVR passband types in parse_nomad1
  - assume (and fit to) real SEDs instead of interpolating when
     determining SDSS magnitudes
+    
+ - try fitting to black-body curve:
+  f(nu) = A* nu**3 * 1/(exp(B*nu)-1)
+  where I fit for A,B using curve_fit
+
 '''
 
 import numpy as np
 from subprocess import Popen, PIPE
 from scipy.interpolate import interp1d
+from scipy.optimize import curve_fit
+import matplotlib.pyplot as plt
 
-
+# constants:
+c = 2.998e10 #cm/s
+k = 1.38e-16 #boltzmann
+h = 6.6260755e-27 #planck
 
 ############################################
 # supporting functions
@@ -72,34 +82,39 @@ def identify_matches( queried_stars, found_stars, match_radius=.5 ):
     return matches
 
 
-def query_sdss8( center, star_coords, fieldsize=275, flags='' ):
+def query_sdss8( center, width, star_coords, flags='' ):
     '''
     Query sdss8 server for info on stars in a field.
     Returns a list of magnitude arrays (when object is found) or None (when not found)
     
     center: decimal coordinates of center-of-field for query
+    width: field size to request (in decimal degrees)
     star_coords: list of decimal coordinates of stars to match
-    fieldsize: size of field to request in arcseconds (default for DECam: 275")
     flags: additional flags to pass to findsdss8
     '''
     print 'asking sdss8...'
     # query about the field
-    request = 'findsdss8 -c "{} {}" -bs {} -e0,'.format(center[0], center[1], fieldsize)
-    out = Popen(request.format(center[0], center[1], fieldsize), shell=True, stdout=PIPE, stderr=PIPE)
+    width = width/2.778e-4  #convert decimal degrees to arcseconds
+    request = 'findsdss8 -c "{} {}" -bs {} -e0,'.format(center[0], center[1], width)
+    out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
     o,e = out.communicate()
     # parse the response
     sdss_objects = parse_sdss8(o)
-    # identify matches
-    matches = identify_matches(star_coords, sdss_objects[:,:2])
-    out_list = []
-    for i, match in enumerate(matches):
-        if match != None:
-            # return only the magnitudes
-            out_list.append( sdss_objects[matches[i]][2::2] )
-        else:
-            # keep a None as a placeholder
-            out_list.append(None)
-    return out_list
+    if len(sdss_objects) == 0:
+        # no matches at all in this field
+        return [None]*len(star_coords)
+    else:
+        # identify matches
+        matches = identify_matches(star_coords, sdss_objects[:,:2])
+        out_list = []
+        for i, match in enumerate(matches):
+            if match != None:
+                # return only the magnitudes
+                out_list.append( sdss_objects[matches[i]][2::2] )
+            else:
+                # keep a None as a placeholder
+                out_list.append(None)
+        return out_list
 
 
 def parse_nomad1( s ):
@@ -137,38 +152,42 @@ def parse_nomad1( s ):
     return np.array(out)
     
     
-def query_nomad1( center, star_coords, fieldsize=275, flags='' ):
+def query_nomad1( center, width, star_coords, flags='' ):
     '''
     Query nomad1 server for info on stars in a field.
     Returns a list of magnitude arrays (when object is found) or None (when not found)
-    
+    width: field size to request (in decimal degrees)    
     center: decimal coordinates of center-of-field for query
     star_coords: list of decimal coordinates of stars to match
-    fieldsize: size of field to request in arcseconds (default for DECam: 275")
     flags: additional flags to pass to findnomad1
     '''
     print 'asking nomad...'
-    request = 'findnomad1 -c "{} {}" -bs {}'.format(center[0], center[1], fieldsize)
-    out = Popen(request.format(center[0], center[1], fieldsize), shell=True, stdout=PIPE, stderr=PIPE)
+    width = width/2.778e-4  #convert decimal degrees to arcseconds
+    request = 'findnomad1 -c "{} {}" -bs {}'.format(center[0], center[1], width)
+    out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
     o,e = out.communicate()
     # parse the response
     nomad_objects = parse_nomad1(o)
-    # identify matches
-    matches = identify_matches(star_coords, nomad_objects[:,:2])
-    out_list = []
-    for i, match in enumerate(matches):
-        if match != None:
-            # return the magnitues
-            out_list.append( nomad_objects[matches[i]][2:] )
-        else:
-            # keep a None as a placeholder
-            out_list.append(None)
-    return out_list
+    if len(nomad_objects) == 0:
+        # no objects at all in this field
+        return [None]*len(star_coords)
+    else:
+        # identify matches
+        matches = identify_matches(star_coords, nomad_objects[:,:2])
+        out_list = []
+        for i, match in enumerate(matches):
+            if match != None:
+                # return the magnitues
+                out_list.append( nomad_objects[matches[i]][2:] )
+            else:
+                # keep a None as a placeholder
+                out_list.append(None)
+        return out_list
 
 
 def Nomad2Jansky( mag, band ):
     '''
-    convert NOMAD magnitude to Janskies
+    convert NOMAD magnitudes to Janskies
     conversions from
      http://astro.wku.edu/strolger/UNITS.txt
      http://www.ipac.caltech.edu/2mass/releases/allsky/doc/sec6_4a.html
@@ -187,8 +206,14 @@ def Nomad2Jansky( mag, band ):
         Fnu0 = 666.7
     return Fnu0 * 10**(-.4*mag)
 
+def SDSS2Jansky( mag ):
+    '''
+    convert SDSS magnitude to Janskies, assuming true AB mags
+    '''
+    f0 = 3631.
+    return f0 * 10**(-.4*mag)
 
-def Jansky2mag( f ):
+def Jansky2SDSS( f ):
     '''
     convert flux density (in Janskies, at central wavelength of SDSS band) to magnitude.
     I assume SDSS filters are true AB mags, and get conversions from
@@ -197,8 +222,11 @@ def Jansky2mag( f ):
     f0 = 3631.
     return -2.5 * np.log10(f/f0)
 
+def bbody( x, A, B ):
+    ''' blackbody curve for x in wavelength '''
+    return (A/x**5) * (np.exp(B/x)-1)**-1
 
-def Nomad2SDSS( nomad_mags ):
+def Nomad2SDSS( nomad_mags, plot_interp=False ):
     ''' interpolate what SDSS magnitudes you can from a set of NOMAD magnitudes '''
     # [B, V, R, J, H, K], ignoring differences between types of BVR
     bands = ['B', 'V', 'R', 'J', 'H', 'K']
@@ -219,27 +247,67 @@ def Nomad2SDSS( nomad_mags ):
     else:
         kind = 'cubic'
     f = interp1d(x, y, kind=kind)
-    # turn Janskies into SDSS mags
-    sdss_mags = []
+    # also fit to a black-body curve
+    p0 = (1e-15, 1e-3)     #p0 ~ values for a 5000K star at few tens of lightyears away
+    # fit y in Janskies to x in cm
+    popt, pcov = curve_fit( bbody, np.array(x)*1e-7, y, p0=p0 )
+    # convert Janskies to SDSS mags
+    sdss_mags_interp = []
+    sdss_mags_bbody  = []
     for i, wl in enumerate(sdss_wl):
+        sdss_mags_bbody.append( round( Jansky2SDSS( bbody(wl*1e-7, *popt) ), 2))
         if not x[0] < wl < x[-1]:
             # asking for a wl outside our interpolated region
-            sdss_mags.append(None)
+            sdss_mags_interp.append(None)
         else:
             flux = f(wl)
-            sdss_mags.append( round(Jansky2mag(flux), 2) )
-    return np.array(sdss_mags)
+            sdss_mags_interp.append( round(Jansky2SDSS(flux), 2))
+
+    if plot_interp:
+        ax = plt.subplot(111)
+        # show the nomad fluxes
+        ax.scatter(x,y, c='k', label='Nomad Fluxes')
+        # show the interpolation
+        xx = np.linspace(x[0], x[-1], 1000)
+        yy = f(xx)
+        # show the blackbody fit
+        yy2 = bbody(xx*1e-7, *popt)
+        ax.plot(xx, yy, label='interpolated SED')
+        ax.plot(xx, yy2, label='best-fit blackbody')
+        plt.title('Measured Fluxes and Interpolated SED')
+        plt.xlabel(r'$\lambda$ (nm)')
+        plt.ylabel(r'$F_\nu$ (Jy)')
+        return np.array(sdss_mags_interp), ax
+    else:
+        return np.array(sdss_mags_interp)
     
+def find_field( star_coords, extend=.0015 ):
+    '''
+    determine the best field for a list of star coordinates,
+    so we can perform only a single query.
+    
+    star_coords: a list of star coordinates, in decimal degrees
+    extend: the buffer beyond the requested coordinates to add to the field
+      also in decimal degrees
+    
+    returns: (coordinates of center), width_of_box
+    '''
+    ras, decs = zip(*star_coords)
+    width_ra = (max(ras)-min(ras) + 2*extend)
+    center_ra = np.mean(ras)
+    width_dec = (max(decs)-min(decs) + 2*extend)
+    center_dec = np.mean(decs)
+    return (center_ra, center_dec), max(width_ra, width_dec)
+
 
 ############################################
 # main function
 ############################################
 
-def full_query( center, star_coords ):
+def full_query( star_coords, interp_plots=False ):
     '''
-    return the magnitude in sdss bands for objects in field.
+    Return the magnitude in all sdss bands for a list of objects.
 
-    center: center of the chip (in decimal coordinates)
     star_coords: coordinates of the stars for which you want magnitudes (must be a list)
     
     returns:
@@ -248,7 +316,9 @@ def full_query( center, star_coords ):
      [u,g,r,i,z] - if object found in SDSS
      interpolated [u,g,r,i,z] - if object found in NOMAD but not SDSS
     '''
-    result = query_sdss8( center, star_coords )
+    center, width = find_field( star_coords )
+    
+    result = query_sdss8( center, width, star_coords )
     # go though and fill in NOMAD results
     nomad_requests = []
     for i,line in enumerate(result):
@@ -256,7 +326,7 @@ def full_query( center, star_coords ):
             nomad_requests.append( star_coords[i] )
     if len(nomad_requests) > 0:
         # query NOMAD if we need to
-        n_result = query_nomad1( center, nomad_requests )
+        n_result = query_nomad1( center, width, nomad_requests )
         # replace unknown SDSS values with values interpolated from NOMAD
         for i,line in enumerate(result):
             if line == None:
@@ -279,22 +349,32 @@ def full_query( center, star_coords ):
 
 
 def test_me():
-    ''' should return a list with two succesful SDSS gets, one fail, and one interpolated from NOMAD '''
-    field_center    = (314.118, -6.0526)
-    query_locations = [(314.111725, -6.051116), (314.113992, -6.049693),\
+    '''
+    should return a list with two succesful SDSS gets,
+    one complete fail, and one interpolated from NOMAD
+    '''
+    query_locations = [ (314.111725, -6.051116), (314.113992, -6.049693),\
     (314.108888, -6.15000), (314.1504417, -06.0502722) ]
-    result = full_query( field_center, query_locations)
+    result = full_query( query_locations)
     print '\nresult of test:\n\n'
     print result
     
 def test_interpolation():
-    field_center    = (314.118, -6.0526)
+    ''' queries a single star, and shows how the interpolation goes '''
     query_locations = [(314.1252969, -6.0715939)]
-    s_result = query_sdss8( field_center, query_locations )[0]
-    n_result = query_nomad1( field_center, query_locations )[0]
-    s_interp = Nomad2SDSS( n_result )
+    #query_locations = [(314.128304, -06.070742)]
+    center, width = find_field( query_locations )
+    s_result = query_sdss8( center, width, query_locations )[0]
+    n_result = query_nomad1( center, width, query_locations )[0]
+    s_interp, ax = Nomad2SDSS( n_result, plot_interp=True )
+    sdss_fluxes = [SDSS2Jansky(val) for val in s_result]
+    sdss_wl  = [354., 475., 622., 763., 905.]
+    ax.scatter( sdss_wl, sdss_fluxes, c='g', label='SDSS fluxes')
+    ax.legend(loc='best')
+    plt.show()
+    
     print '\ntest result:\n\n'
     print 'SDSS:        ', s_result
     print 'interpolated:', s_interp
     print 'difference:  ', [round(s_result[i]-s_interp[i],2) if s_interp[i]!=None else None for i in range(len(s_result))]
-    
+

@@ -10,10 +10,6 @@ TODO:
  - account for differences in BVR passband types in parse_nomad1
  - assume (and fit to) real SEDs instead of interpolating when
     determining SDSS magnitudes
-    
- - try fitting to black-body curve:
-  f(nu) = A* nu**3 * 1/(exp(B*nu)-1)
-  where I fit for A,B using curve_fit
 
 '''
 

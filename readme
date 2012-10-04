@@ -2,6 +2,9 @@ This is a draft framework for a photometry zeropoint server
 which would take in a list of object coordinates and a requested
 band and return a list of magnitudes.
 
+I think most of the framework is good, but there's a serious problem in interpolating magnitudes.
+
+
 CURRENT STATE:
 - returns ugriz magnitudes from SDSS query
 - if object not in SDSS, returns magnitudes as
@@ -20,8 +23,9 @@ Would like to check in and discuss how to solve this; there seem
 
 
 QUICK EXAMPLE:
-run, in python:
-> import find_photometry
-> find_photometry.test_interpolation()
+
+for a quick example on one object, run:
+> from find_photometry import *
+> test_interpolation()
 
 there are two sources in the test_interpolation function; simply swap the comments to explore the other.

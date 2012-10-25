@@ -14,21 +14,28 @@ TODO:
 '''
 
 import numpy as np
-from subprocess import Popen, PIPE
-from scipy.interpolate import interp1d
-from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
+from subprocess import Popen, PIPE
+from scipy.optimize import minimize
 
 # constants:
 c = 2.998e10 #cm/s
 k = 1.38e-16 #boltzmann
 h = 6.6260755e-27 #planck
 
+try:
+    models = np.load( open('all_models.npy','r') )
+except:
+    print 'cannot find models file'
+    exit()
+model_filters = ['sdss,u', 'sdss,g', 'sdss,r', 'sdss,i', 'sdss,z', 'stromgren,y', 'B', 'V', 'R', 'J', 'H', 'K']
+
+
 ############################################
 # supporting functions
 ############################################
 
-def parse_sdss8(s):
+def parse_sdss8( s ):
     '''
     parse findsdss8 output
     
@@ -173,109 +180,13 @@ def query_nomad1( center, width, star_coords, flags='' ):
         out_list = []
         for i, match in enumerate(matches):
             if match != None:
-                # return the magnitues
+                # return the magnitudes
                 out_list.append( nomad_objects[matches[i]][2:] )
             else:
                 # keep a None as a placeholder
                 out_list.append(None)
         return out_list
 
-
-def Nomad2Jansky( mag, band ):
-    '''
-    convert NOMAD magnitudes to Janskies
-    conversions from
-     http://astro.wku.edu/strolger/UNITS.txt
-     http://www.ipac.caltech.edu/2mass/releases/allsky/doc/sec6_4a.html
-    '''
-    if band == 'B':
-        Fnu0 = 4260.  #Jy
-    elif band == 'V':
-        Fnu0 = 3540.
-    elif band == 'R':
-        Fnu0 = 3080.
-    elif band == 'J':
-        Fnu0 = 1594.
-    elif band == 'H':
-        Fnu0 = 1024.
-    elif band == 'K':
-        Fnu0 = 666.7
-    return Fnu0 * 10**(-.4*mag)
-
-def SDSS2Jansky( mag ):
-    '''
-    convert SDSS magnitude to Janskies, assuming true AB mags
-    '''
-    f0 = 3631.
-    return f0 * 10**(-.4*mag)
-
-def Jansky2SDSS( f ):
-    '''
-    convert flux density (in Janskies, at central wavelength of SDSS band) to magnitude.
-    I assume SDSS filters are true AB mags, and get conversions from
-     http://www.sdss.org/dr5/algorithms/fluxcal.html
-    '''
-    f0 = 3631.
-    return -2.5 * np.log10(f/f0)
-
-def bbody( x, A, B ):
-    ''' blackbody curve for x in wavelength '''
-    return (A/x**5) * (np.exp(B/x)-1)**-1
-
-def Nomad2SDSS( nomad_mags, plot_interp=False ):
-    ''' interpolate what SDSS magnitudes you can from a set of NOMAD magnitudes '''
-    # [B, V, R, J, H, K], ignoring differences between types of BVR
-    bands = ['B', 'V', 'R', 'J', 'H', 'K']
-    nomad_wl = [445., 551., 658., 1250., 1650., 2150.] #nm
-    # [u, g, r, i, z]
-    sdss_wl  = [354., 475., 622., 763., 905.] #nm
-    # convert to janskies
-    x,y = [],[]
-    for i,mag in enumerate(nomad_mags):
-        if mag == None:
-            continue
-        else:
-            x.append( nomad_wl[i] )
-            y.append( Nomad2Jansky(mag, bands[i]) )
-    # interpolate in Janskies
-    if len(x) < 3:
-        kind = 'linear'
-    else:
-        kind = 'cubic'
-    f = interp1d(x, y, kind=kind)
-    # also fit to a black-body curve
-    p0 = (1e-15, 1e-3)     #p0 ~ values for a 5000K star at few tens of lightyears away
-    # fit y in Janskies to x in cm
-    popt, pcov = curve_fit( bbody, np.array(x)*1e-7, y, p0=p0 )
-    # convert Janskies to SDSS mags
-    sdss_mags_interp = []
-    sdss_mags_bbody  = []
-    for i, wl in enumerate(sdss_wl):
-        sdss_mags_bbody.append( round( Jansky2SDSS( bbody(wl*1e-7, *popt) ), 2))
-        if not x[0] < wl < x[-1]:
-            # asking for a wl outside our interpolated region
-            sdss_mags_interp.append(None)
-        else:
-            flux = f(wl)
-            sdss_mags_interp.append( round(Jansky2SDSS(flux), 2))
-
-    if plot_interp:
-        ax = plt.subplot(111)
-        # show the nomad fluxes
-        ax.scatter(x,y, c='k', label='Nomad Fluxes')
-        # show the interpolation
-        xx = np.linspace(x[0], x[-1], 1000)
-        yy = f(xx)
-        # show the blackbody fit
-        yy2 = bbody(xx*1e-7, *popt)
-        ax.plot(xx, yy, label='interpolated SED')
-        ax.plot(xx, yy2, label='best-fit blackbody')
-        plt.title('Measured Fluxes and Interpolated SED')
-        plt.xlabel(r'$\lambda$ (nm)')
-        plt.ylabel(r'$F_\nu$ (Jy)')
-        return np.array(sdss_mags_interp), ax
-    else:
-        return np.array(sdss_mags_interp)
     
 def find_field( star_coords, extend=.0015 ):
     '''
@@ -296,46 +207,91 @@ def find_field( star_coords, extend=.0015 ):
     return (center_ra, center_dec), max(width_ra, width_dec)
 
 
+def error_C(C, model, obs):
+    '''
+    DM: number, a constant akin to distance modulus
+    model: array-like, model absolute mags
+    real: array-like, true observed mags
+
+    returns: sum squared errors
+    '''
+    nm = model+C
+    return np.sum( (nm-obs)**2 )
+
+def choose_model( obs, mask, models=models ):
+    '''
+    find and return the best model for obs, where mask
+    describes which of the modeled passbands are in obs
+    '''
+    # rezero both the model and the obs, for comparision of SED shapes
+    norm_obs = np.array(obs) - np.min( np.array(obs) )
+    # go through all models and choose the one with the most similar shape
+    sum_sqrs = []
+    for i,model in enumerate(models):
+        norm_mod = model[mask] - np.min( model[mask] )
+        sum_sqrs.append(np.sum( (norm_mod-norm_obs)**2 ))
+    best_model = models[ np.argmin(sum_sqrs) ]
+    # fit for the additive constant (akin to distance modulus)
+    res = minimize( error_C, 50., args=(best_model[mask], obs) )
+    C = res.values()[5][0]
+    # return all magnitudes for best model
+    return best_model + C
+    
+    
 ############################################
 # main function
 ############################################
 
-def full_query( star_coords, interp_plots=False ):
+def full_query( star_coords ):
     '''
-    Return the magnitude in all sdss bands for a list of objects.
+    Return the magnitude in all DECam bands for a list of objects.
 
     star_coords: coordinates of the stars for which you want magnitudes (must be a list)
     
     returns:
-    a list containing one item for each object in star_coords:
-     None - if object not found in either SDSS or NOMAD
-     [u,g,r,i,z] - if object found in SDSS
-     interpolated [u,g,r,i,z] - if object found in NOMAD but not SDSS
+    an array with one line for each object in star_coords
+     zeros if object not found in SDSS or NOMAD
+     ([g,r,i,z,Y])  if object found in SDSS or NOMAD
     '''
     center, width = find_field( star_coords )
-    
-    result = query_sdss8( center, width, star_coords )
-    # go though and fill in NOMAD results
+    s_result = query_sdss8( center, width, star_coords )
+    # return SDSS mags & Y for those that have SDSS
+    final_result = np.zeros( (len(star_coords), 5) )
     nomad_requests = []
-    for i,line in enumerate(result):
+    for i,line in enumerate(s_result):
         if line == None:
-            nomad_requests.append( star_coords[i] )
+             #object not in SDSS
+            nomad_requests.append(i)
+            continue
+        mask = np.array([True]*5+[False]*7)
+        model = choose_model( np.array(line), mask )
+        # keep SDSS mags and stromgren Y
+        final_row = np.append( line[1:], model[5] )
+        final_result[i] = final_row
+        
+    # go though and fill in NOMAD results for objects not in SDSS
     if len(nomad_requests) > 0:
         # query NOMAD if we need to
-        n_result = query_nomad1( center, width, nomad_requests )
-        # replace unknown SDSS values with values interpolated from NOMAD
-        for i,line in enumerate(result):
+        trim_star_coords = [star_coords[j] for j in nomad_requests]
+        n_result = query_nomad1( center, width, trim_star_coords )
+        # return estimated SDSS mags & Y
+        for i,line in enumerate(n_result):
+            i_final = nomad_requests[i] # relates final output array index to working index
             if line == None:
-                nomad = n_result.pop(0)
-                if nomad == None:
-                    # found nothing, report nothing
-                    result[i] = None
-                    continue
-                # otherwise, convert nomad-reported magnitudes to SDSS
-                result[i] = Nomad2SDSS( nomad )
-    return result
-
-
+                # not in NOMAD either, so report nothing
+                continue
+            elif not any(line[:3]) or not any(line[3:]):
+                # demand at least one optical and one IR observation to fit
+                continue
+            # otherwise, fit for a model &etc
+            obs = np.array([val for val in line if val])
+            mask = np.array( [False]*6 + [True if val else False for val in line] )
+            model = choose_model( obs, mask )
+            # return SDSS mags and stromgren Y
+            final_row = model[1:6]
+            final_result[i_final] = final_row
+    
+    return final_result
 
 
 
@@ -347,30 +303,35 @@ def full_query( star_coords, interp_plots=False ):
 def test_me():
     '''
     should return a list with two succesful SDSS gets,
-    one complete fail, and one interpolated from NOMAD
+    two complete fails.
     '''
     query_locations = [ (314.111725, -6.051116), (314.113992, -6.049693),\
     (314.108888, -6.15000), (314.1504417, -06.0502722) ]
-    result = full_query( query_locations)
+    result = full_query( query_locations )
     print '\nresult of test:\n\n'
     print result
     
-def test_interpolation():
+def test_model_fit():
     ''' queries a single star, and shows how the interpolation goes '''
-    query_locations = [(314.1252969, -6.0715939)]
-    #query_locations = [(314.128304, -06.070742)]
+    query_locations = [(314.128304, -06.070742)]
     center, width = find_field( query_locations )
     s_result = query_sdss8( center, width, query_locations )[0]
     n_result = query_nomad1( center, width, query_locations )[0]
-    s_interp, ax = Nomad2SDSS( n_result, plot_interp=True )
-    sdss_fluxes = [SDSS2Jansky(val) for val in s_result]
-    sdss_wl  = [354., 475., 622., 763., 905.]
-    ax.scatter( sdss_wl, sdss_fluxes, c='g', label='SDSS fluxes')
-    ax.legend(loc='best')
-    plt.show()
-    
-    print '\ntest result:\n\n'
-    print 'SDSS:        ', s_result
-    print 'interpolated:', s_interp
-    print 'difference:  ', [round(s_result[i]-s_interp[i],2) if s_interp[i]!=None else None for i in range(len(s_result))]
+    # also find the best-fit model, fitting to NOMAD 
+    model_mask = np.array( [False]*6 + [True if val else False for val in n_result])
+    nomad_mask = np.array([True if val else False for val in n_result])
+    best_model = choose_model( n_result[nomad_mask], model_mask )
 
+    nomad_wl = [445., 551., 658., 1250., 1650., 2150.] #nm
+    sdss_wl  = [354., 475., 622., 763., 905.] #nm
+    y_wl = [1020.] #nm
+    
+    plt.scatter( sdss_wl+y_wl+nomad_wl, best_model, c='k', marker='x', label='model')
+    plt.scatter( np.array(nomad_wl)[nomad_mask], n_result[nomad_mask] , c='g', label='nomad')
+    plt.scatter( sdss_wl, s_result, c='r', label='sdss')
+    
+    plt.xlabel('wavelength (nm)')
+    plt.ylabel('magnitude')
+    plt.legend(loc='best')
+    plt.gca().invert_yaxis()
+    plt.show()

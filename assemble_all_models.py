@@ -18,6 +18,10 @@ mod_names = mods[:,0]
 mod_temps = np.array([row[-1].split('_')[1].split('[')[0] for row in mods]).astype('float')
 mod_gravs = np.array([row[-1].split('_')[1].split('g')[1].strip(']') for row in mods]).astype('float') * .1
 
+# get zeropoint corrections from http://www.stsci.edu/hst/HST_overview/documents/synphot/c034.html#335184
+# for [y, B, V, R]
+vegamag_corrections = [.038, .036, .026, .038]
+
 # define the filters desired
 filt_names = ['sdss,u', 'sdss,g', 'sdss,r', 'sdss,i', 'sdss,z', 'stromgren,y', 'B', 'V', 'R', 'J', 'H', 'K']
 filts = []
@@ -38,11 +42,12 @@ for i,model in enumerate(mod_names):
     try:
         for j,filt in enumerate(filts):
             ob = ps.Observation(spec, filt)
-            # get abmags from sloan filters and y, and vega mags from BVR, and 2MASS mags from JHK
-            if j < 6:
+            # get abmags from sloan filters, and vega mags from y and BVR (incorporating correction), and 2MASS mags from JHK
+            if j < 5:
                 mag = ob.effstim('abmag')
-            elif 6 <= j < 9:
-                mag = ob.effstim('vegamag')
+            elif 5 <= j < 9:
+                correction = vegamag_corrections[ j-5 ]
+                mag = ob.effstim('vegamag') + correction
             elif 9 <= j:
                 zeropoint = tm_zps[ j-9 ]
                 flux = ob.effstim('jy')

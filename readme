@@ -1,31 +1,25 @@
 This is a draft framework for a photometry zeropoint server
-which would take in a list of object coordinates and a requested
-band and return a list of magnitudes.
+which takes in a list of object coordinates and a requested
+band and returns a list of magnitudes.
 
-I think most of the framework is good, but there's a serious problem in interpolating magnitudes.
+
+METHOD:
++ query SDSS, NOMAD for observations of object
++ match found observations to best set of observations from 
+  synthetic photometry of modeled stars
++ return requested passbands, either from query or from best-fit model
+
 
 
 CURRENT STATE:
-- returns ugriz magnitudes from SDSS query
-- if object not in SDSS, returns magnitudes as
-   interpolated from NOMAD magnitudes
-
-The main problem is determining SDSS mags from NOMAD mags.
-It seems like the fluxes determined from NOMAD magnitudes and the fluxes
- determined from SDSS magnitudes are strongly at odds.
-
-Right now I use simple mag-to-flux and flux-to-mag conversions - that's probably
- where the dominant errors come in, but I don't think using the true filter function
- can solve these 1-mag offsets.
-
-Would like to check in and discuss how to solve this; there seem
- to be significant corrections needed that I don't really know (reddening)?
+- full_query(coordinates_list) returns:
+   if in SDSS: griz + modeled Y, model fit to SDSS mags
+   if not in SDSS: modeled grizY, 
+- run test_model_fits() to examine some of these
 
 
 QUICK EXAMPLE:
-
-for a quick example on one object, run:
+for a quick comparison of best-fit models (to NOMAD photometry)
+and SDSS observations, run:
 > from find_photometry import *
-> test_interpolation()
-
-there are two sources in the test_interpolation function; simply swap the comments to explore the other.
+> test_model_fits()

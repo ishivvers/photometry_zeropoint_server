@@ -13,8 +13,8 @@ METHOD:
 
 CURRENT STATE:
 - full_query(coordinates_list) returns:
-   if in SDSS: griz + modeled Y, model fit to SDSS mags
-   if not in SDSS: modeled grizY, 
+   if in SDSS: griz + modeled Y (model fit to SDSS)
+   if not in SDSS: modeled grizY (model fit to NOMAD)
 - run test_model_fits() to examine some of these
 
 
@@ -23,3 +23,6 @@ for a quick comparison of best-fit models (to NOMAD photometry)
 and SDSS observations, run:
 > from find_photometry import *
 > test_model_fits()
+ *** and, for normal use ***
+> query_locations = np.load( open('matches.npy','r'))
+> print full_query( query_locations )

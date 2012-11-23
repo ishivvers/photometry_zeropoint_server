@@ -1,28 +1,30 @@
-This is a draft framework for a photometry zeropoint server
-which takes in a list of object coordinates and a requested
-band and returns a list of magnitudes.
+This is a draft framework for a photometric zeropoint server.
+Currently, it is capable of producing a catalog of magnitudes 
+ for almost all 2MASS sources in a field, including
+ u,g,r,i,z,y,B,R,J,H,K photometry, using a combination
+ of the SDSS,USNOB1 catalogs and synthetic photometry.
 
+EXAMPLEs:
 
-METHOD:
-+ query SDSS, NOMAD for observations of object
-+ match found observations to best set of observations from 
-  synthetic photometry of modeled stars
-+ return requested passbands, either from query or from best-fit model
+to view the SED of an object as determined by fits to BRJHK photometry,
+ compared to the full SED including grizy photometry, run:
+> from get_SEDs import *
+> test_sdss_interp( 314.136483, -6.081352 )
+*** shows modeled SED (without including SDSS mags) compared to true ***
+> construct_SED( 314.136483, -6.081352 )
+*** to view other sources, input the 2MASS coordinates of another object
+    present in all three catalogs ***
 
+to produce a catalog of all objects possible in a field, run:
+> from get_SEDs import *
+> produce_catalog( (314.136483, -6.081352), 1800., savefile='catalog.txt' )
+*** catalog of objects in a 1/2 degree field centered at 314.136483, -6.081352 ***
 
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+to do:
 
-CURRENT STATE:
-- full_query(coordinates_list) returns:
-   if in SDSS: griz + modeled Y (model fit to SDSS)
-   if not in SDSS: modeled grizY (model fit to NOMAD)
-- run test_model_fits() to examine some of these
+Build system to compare this output catalog with one produced
+ by sextractor, and report zeropoint difference for relevant band.
+Compare results with results from standard-star observations.
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-
-QUICK EXAMPLE:
-for a quick comparison of best-fit models (to NOMAD photometry)
-and SDSS observations, run:
-> from find_photometry import *
-> test_model_fits()
- *** and, for normal use ***
-> query_locations = np.load( open('matches.npy','r'))
-> print full_query( query_locations )

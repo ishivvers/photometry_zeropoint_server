@@ -1,68 +1,92 @@
 '''
-script to construct and save simulated photometric observations
-for a set of stellar models
+A synthetic photometry constructor.
+This script produces a file called all_models.npy,
+ which is used to produce catalogs of SEDs by the 
+ functions in get_SEDs.py
 
-MUST BE RUN WITH STSDAS + PYTHON ENVIRONMENT
+NOTE:
+Requires the STSCI pysynphot environment, with the CBDB
+ database present, as well as a subfolder named 
+ transmission_functions/ containing the relative spectral
+ response functions for 2Mass and the PS1 y band - see below.
 '''
 
 
-# IMPORTS
-import pysynphot as ps
+################################################
 import numpy as np
 import matplotlib.pyplot as plt
+import pysynphot as ps
+import os
 
-# pull in all of the recommended models, copied from 
-# http://www.stsci.edu/hst/HST_overview/documents/synphot/AppA_Catalogs4.html#48115
-mods = np.loadtxt('recommended_models.txt', skiprows=2, dtype='S')
-mod_names = mods[:,0]
-mod_temps = np.array([row[-1].split('_')[1].split('[')[0] for row in mods]).astype('float')
-mod_gravs = np.array([row[-1].split('_')[1].split('g')[1].strip(']') for row in mods]).astype('float') * .1
 
-# get zeropoint corrections from http://www.stsci.edu/hst/HST_overview/documents/synphot/c034.html#335184
-# for [y, B, V, R]
-vegamag_corrections = [.038, .036, .026, .038]
+################################################
+# PASSBANDS
+pb_dir = 'transmission_functions/'
 
-# define the filters desired
-filt_names = ['sdss,u', 'sdss,g', 'sdss,r', 'sdss,i', 'sdss,z', 'stromgren,y', 'B', 'V', 'R', 'J', 'H', 'K']
-filts = []
-for fn in filt_names:
-    filts.append( ps.ObsBandpass(fn) )
+# SDSS passbands
+u = ps.ObsBandpass('sdss,u')
+g = ps.ObsBandpass('sdss,g')
+r = ps.ObsBandpass('sdss,r')
+i = ps.ObsBandpass('sdss,i')
+z = ps.ObsBandpass('sdss,z')
 
-# 2MASS has it's own internal mag system, so we need those zeropoints.
-# from http://www.ipac.caltech.edu/2mass/releases/allsky/doc/sec6_4a.html
-#  all in Jy
-tm_zps = [1594., 1024., 666.7]
+# y-band from Pan-STARRS1
+y = ps.FileBandpass(pb_dir+'y_PS1_RSR.dat')
 
-# go through models and build all of the observations
-big_list = []
-fails = []
-for i,model in enumerate(mod_names):
-    spec = ps.Icat('ck04models', mod_temps[i], 0., mod_gravs[i]) #using Z=0. for all models
-    little_list = []
-    try:
-        for j,filt in enumerate(filts):
-            ob = ps.Observation(spec, filt)
-            # get abmags from sloan filters, and vega mags from y and BVR (incorporating correction), and 2MASS mags from JHK
-            if j < 5:
-                mag = ob.effstim('abmag')
-            elif 5 <= j < 9:
-                correction = vegamag_corrections[ j-5 ]
-                mag = ob.effstim('vegamag') + correction
-            elif 9 <= j:
-                zeropoint = tm_zps[ j-9 ]
-                flux = ob.effstim('jy')
-                mag = -2.5 * np.log10(flux/zeropoint)
-            little_list.append(mag)
-    except:
-        fails.append(i)
-    if little_list:
-        big_list.append(little_list)
+# USNOB1 passbands
+B = ps.ObsBandpass('B')
+R = ps.ObsBandpass('R')
 
-# save to a numpy savefile, for use later
-np.save( open('all_models.npy', 'w'), big_list)
+# 2Mass passbands
+J = ps.FileBandpass(pb_dir+'J_2Mass_RSR.dat')
+H = ps.FileBandpass(pb_dir+'H_2Mass_RSR.dat')
+K = ps.FileBandpass(pb_dir+'K_2Mass_RSR.dat')
+
+passbands = [u,g,r,i,z,y,B,R,J,H,K]
+
+################################################
+# SPECTRA
+
+# Using the Castelli & Kurucz models for stars with temperatures
+#  ranging from ~3500K to ~50,000K, following suggestions from
+#  http://www.stsci.edu/hst/HST_overview/documents/synphot/AppA_Catalogs4.html#48115
+logg = 4.5
+metal = 0.0
+Temps = range(3500, 10000, 100) + range(10000, 20000, 500) + range(20000, 50000, 1000)
+
+save_spectra = True
+
+################################################
+# PERFORM SYNTHETIC PHOTOMETRY
+print 'here we go...'
+count = 0
+all_colors = []
+
+# first get the effective wavelengths for all passbands
+single = [0.]
+for bp in passbands:
+    single.append( bp.avgwave() )
+all_colors.append(single)   
+
+#now go through all temperatures and perform photometry
+for T in Temps:
+    print T
+    spec = ps.Icat( 'ck04models', T, metal, logg )
+    if save_spectra:
+        np.save( 'model_spectra/{}_{}Z_{}g.npy'.format(T, str(metal).replace('.',''), str(logg).replace('.','')),
+                  np.vstack( (spec.wave, spec.flux)) )
+    single_phot = []
+    for bp in passbands:
+        ob = ps.Observation(spec, bp)
+        # Use ABmags for ugrizy, but Vegamags for BRJHK
+        if bp in [u,g,r,i,z,y]:
+            mag = ob.effstim('abmag')
+        else:
+            mag = ob.effstim('vegamag')
+        single_phot.append(mag)
+    # Save the model relative to K=0, with the 0th index as the temperature
+    single_colors = [T]+[ val-single_phot[-1] for val in single_phot ]
+    all_colors.append(single_colors)
+
+np.save( open('all_models.npy', 'w'), np.array(all_colors) )
             
-print 'failed on:'
-for val in fails:
-    print mod_names[val]
-    
-    

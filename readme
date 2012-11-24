@@ -1,13 +1,13 @@
 This is a draft framework for a photometric zeropoint server.
-Currently, it is capable of producing a catalog of magnitudes 
- for almost all 2MASS sources in a field, including
+Currently, it produces a catalog of magnitudes 
+ for all sources in SDSS or 2MASS+USNOB1, including
  u,g,r,i,z,y,B,R,J,H,K photometry, using a combination
- of the SDSS,USNOB1 catalogs and synthetic photometry.
+ of the cataloged magnitudes and synthetic photometry.
 
 EXAMPLEs:
 
 to view the SED of an object as determined by fits to BRJHK photometry,
- compared to the full SED including grizy photometry, run:
+ compared to the full SED including ugrizy photometry, run:
 > from get_SEDs import *
 > test_sdss_interp( 314.136483, -6.081352 )
 *** shows modeled SED (without including SDSS mags) compared to true ***

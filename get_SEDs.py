@@ -383,7 +383,7 @@ def choose_model( obs, mode, models=MODELS ):
     obs: an array of the observed magnitudes and errors, in
            order as defined by the mode key (see below)
     mode: defines what colors to use in the fit, i.e. what observations exist
-           0 -> SDSS+2MASS; 1 -> USNOB+2MASS; 2 -> SDSS+USNOB+2MASS
+           0 -> SDSS+2MASS; 1 -> USNOB+2MASS; 2 -> SDSS ONLY
     models: an array of modeled SEDs, where 0th entry is temperature
              of the model, and the rest are magnitudes
     '''
@@ -394,7 +394,7 @@ def choose_model( obs, mode, models=MODELS ):
     elif mode == 1:
         mask = [0,0,0,0,0,0,0,1,1,1,1,1]
     elif mode == 2:
-        mask = [0,1,1,1,1,1,0,1,1,1,1,1]
+        mask = [0,1,1,1,1,1,0,0,0,0,0,0]
     mask = np.array(mask).astype(bool)
     
     mags = obs[::2]
@@ -428,28 +428,30 @@ def construct_SED( ra, dec, redden=True ):
     Construct the SED for a single object, using what cataloged
     magnitudes we can find as well as synthetic photometry from 
     modeled spectrum.
+    
+    NEEDS UPDATE
     '''
     # simply assume the first object returned by each catalog
     #  is the relevant object
     mass, sdss, usnob = query_all(ra, dec, boxsize=1.)
-    obs = np.hstack( (sdss[0][2:], usnob[0][2:], mass[0][2:]) )
+    obs = np.hstack( (sdss[0][2:], mass[0][2:]) )
     
     if redden:
         # de-redden the observations
-        filts = ['u','g','r','i','z','B','R','J','H','K']
+        filts = ['u','g','r','i','z','J','H','K']
         obs[::2] -= get_reddening( ra, dec, filts )
     
     # fit a model to the observations
-    model, T = choose_model( obs, 2 )
+    model, T = choose_model( obs, 0 )
 
     if redden:
         # redden the model and re-redden the obs
         model += get_reddening( ra, dec, ALL_FILTERS )
-        filts = ['u','g','r','i','z','B','R','J','H','K']
         obs[::2] += get_reddening( ra, dec, filts )
         
     mask = np.array([0,1,1,1,1,1,0,1,1,1,1,1]).astype(bool)
-    plt.scatter( MODELS[0][mask], obs[::2], c='g', label='observations' )
+    full_obs = np.hstack( (sdss[0][2:], usnob[0][2:], mass[0][2:]) )
+    plt.scatter( MODELS[0][mask], full_obs[::2], c='g', label='observations' )
     plt.scatter( MODELS[0][1:], model, c='b', marker='D', label='model' )
     plt.legend(loc='best')
     plt.xlabel('Wavelength (A)')
@@ -506,59 +508,58 @@ def produce_catalog( field_center, field_width, redden=True ):
     ra, dec = field_center #in decimal degrees
     mass, sdss, usnob = query_all(ra, dec, boxsize=field_width)
     
-    # require 2mass for objects - if we're in a field without any 
-    #  2mass point sources we're just out of luck.
-    if mass == None:
-        return [],[]
-    
-    # match sdss, usnob objects to 2mass objects
-    if sdss != None:
-        sdss_matches = identify_matches( mass[:,:2], sdss[:,:2] )
-    else:
-        sdss_matches = [None]*len(mass)
-    if usnob != None:
-        usnob_matches = identify_matches( mass[:,:2], usnob[:,:2] )
-    else:
-        usnob_matches = [None]*len(mass)
-
-    # assemble a list of objects, sorted in order by 2MASS, with magnitudes
-    #  and errors for all surveys, and keep track of the mode with which
-    #  to run choose_model (i.e. which surveys are present).
-    #  Also keep track of coordinates, keeping the 2MASS coordinates
     object_mags = []
     modes = []
     object_coords = []
-    for i,obj in enumerate(mass):
-        if sdss_matches[i] != None and usnob_matches[i] != None:
-            i_sdss = sdss_matches[i]
-            i_usnob = usnob_matches[i]
-            obs = np.hstack( (sdss[i_sdss][2:], usnob[i_usnob][2:], obj[2:]) )
-            mode = 2
-        elif sdss_matches[i] != None and usnob_matches[i] == None:
-            i_sdss = sdss_matches[i]
-            obs = np.hstack( (sdss[i_sdss][2:], obj[2:]) )
-            mode = 0
-        elif sdss_matches[i] == None and usnob_matches[i] != None:
-            i_usnob = usnob_matches[i]
-            obs = np.hstack( (usnob[i_usnob][2:], obj[2:]) )
-            mode = 1
-        elif sdss_matches[i] == None and usnob_matches[i] == None:
-            continue
-        object_mags.append( obs )
-        modes.append( mode )
-        object_coords.append( obj[:2] )
+    if mass != None:
+        # match sdss, usnob objects to 2mass objects
+        if sdss != None:
+            sdss_matches = identify_matches( mass[:,:2], sdss[:,:2] )
+        else:
+            sdss_matches = [None]*len(mass)
+        if usnob != None:
+            usnob_matches = identify_matches( mass[:,:2], usnob[:,:2] )
+        else:
+            usnob_matches = [None]*len(mass)
+
+        # Go through 2mass objects and assemble a catalog
+        #  of all objects present in 2mass and (sdss or usnob)
+        #  Use 2mass+sdss OR 2mass+usnob (ignore usnob if sdss present)
+        for i,obj in enumerate(mass):
+            if sdss_matches[i] != None:
+                i_sdss = sdss_matches[i]
+                obs = np.hstack( (sdss[i_sdss][2:], obj[2:]) )
+                mode = 0
+            elif sdss_matches[i] == None and usnob_matches[i] != None:
+                i_usnob = usnob_matches[i]
+                obs = np.hstack( (usnob[i_usnob][2:], obj[2:]) )
+                mode = 1
+            elif sdss_matches[i] == None and usnob_matches[i] == None:
+                continue
+            object_mags.append( obs )
+            modes.append( mode )
+            object_coords.append( obj[:2] )
+    
+    # now go through sdss objects not in 2mass and assemble a catalog of
+    #  all objects present only in sdss
+    if sdss != None:
+        remaining_sdss = [val for i,val in enumerate(sdss) if i not in sdss_matches]
+        for i,obj in enumerate(remaining_sdss):
+            object_mags.append( obj[2:] )
+            modes.append( 2 )
+            object_coords.append( obj[:2] )
         
     # now fit a model to each object, and construct the final SED,
     #  filling in missing observations with synthetic photometry.
     final_seds = []
     for i, obs in enumerate(object_mags):
         mode = modes[i]
-        if mode == 0:
+        if mode == 0: # sdss+2mass
             mask = [1,1,1,1,1,0,0,0,1,1,1]
-        elif mode == 1:
+        elif mode == 1: # usnob+2mass
             mask = [0,0,0,0,0,0,1,1,1,1,1]
-        elif mode == 2:
-            mask = [1,1,1,1,1,0,1,1,1,1,1]
+        elif mode == 2: # sdss only
+            mask = [1,1,1,1,1,0,0,0,0,0,0]
         mask = np.array(mask).astype(bool)
         
         if redden:
@@ -580,7 +581,7 @@ def produce_catalog( field_center, field_width, redden=True ):
         sed[~mask] = model[~mask]
         final_seds.append(sed)
     
-    return object_coords, final_seds
+    return object_coords, final_seds, modes
         
 
 def catalog( field_center, field_width, redden=True, savefile=None, max_size=900.):
@@ -615,13 +616,14 @@ def catalog( field_center, field_width, redden=True, savefile=None, max_size=900
             rr += w_tile
 
         # go through each tile and accumulate the results:
-        object_coords, final_seds = [],[]
+        object_coords, final_seds, modes = [],[],[]
         for i,center in enumerate(centers):
-            oc, fs = produce_catalog( center, w_tile/a2d, redden=redden )
+            oc, fs, ms = produce_catalog( center, w_tile/a2d, redden=redden )
             object_coords += oc
             final_seds += fs
+            modes += ms
     else:
-        object_coords, final_seds = produce_catalog( field_center, field_width, redden=redden )
+        object_coords, final_seds, modes = produce_catalog( field_center, field_width, redden=redden )
 
     # Done! Save to file, or return SEDs and coordinates
     if savefile:
@@ -629,9 +631,10 @@ def catalog( field_center, field_width, redden=True, savefile=None, max_size=900
         fff = open(savefile,'w')
         fff.write('# Produced by get_SEDs.py \n# Catalog of objects in field of ' +
                   'size {} (arcsec) centered at {}.\n'.format( field_width, field_center) +
-                  '# RA\tDEC\t' + '\t'.join(ALL_FILTERS) + '\n')
+                  '# modes: 0 -> SDSS+2MASS; 1 -> USNOB1+2MASS;, 2 -> SDSS only\n'
+                  '# RA\tDEC\t' + '\t'.join(ALL_FILTERS) + '\tmode\n')
         for i,row in enumerate(final_seds):
-            fff.write( '\t'.join( map(str, object_coords[i]) ) + '\t' + '\t'.join( map(format, row) ) + '\n' )
+            fff.write( '\t'.join( map(str, object_coords[i]) ) + '\t' + '\t'.join( map(format, row) ) + '\t{}\n'.format(modes[i]) )
         fff.close()
     else:
         return np.array(object_coords), np.array(final_seds)

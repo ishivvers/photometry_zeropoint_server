@@ -6,6 +6,9 @@ of online catalogs (USNOB1, 2MASS, SDSS) and synthetic photometry.
 Requires:
 - all_models.npy, a file produced by assemble_models.py
 - Schlegel et al. dust extiction maps in a folder named dust_maps
+
+TO DO:
+- make it work with sdss, sdss+2mass, or usnob+2mass
 '''
 
 
@@ -68,20 +71,25 @@ def parse_sdss( s ):
     out = []
     lines = [lll for lll in s.split('\n') if lll and lll[0]!='#']
     for line in lines:
-        line = [ val for val in line[4:].split(' ') if val ] #drop first part to avoid inconsistency
-        # RA and DEC
-        if '+' in line[0]:
-            char = '+'
-        else: 
-            char = '-'
-        ra  = float(line[0].split(char)[0])
-        dec = float(char + line[0].split(char)[1])
-        # magnitudes and errors
-        #  in order: u, u_sig, g, g_sig, r, r_sig, i, i_sig, z, z_sig 
-        tmp = [ra, dec]
-        for band in line[3:8]:
-            tmp += map( float, band.split(':') )
-        out.append( tmp )
+        try:
+            line = [ val for val in line[4:].split(' ') if val ] #drop first part to avoid inconsistency
+            # RA and DEC
+            if '+' in line[0]:
+                char = '+'
+            else: 
+                char = '-'
+            ra  = float(line[0].split(char)[0])
+            dec = float(char + line[0].split(char)[1])
+            # magnitudes and errors
+            #  in order: u, u_sig, g, g_sig, r, r_sig, i, i_sig, z, z_sig 
+            tmp = [ra, dec]
+            for band in line[3:8]:
+                tmp += map( float, band.split(':') )
+            out.append( tmp )
+        except:
+            # silently fail on sources that are not formatted properly,
+            #  they are probably anomalous anyways.
+            pass
     return np.array(out)
 
 
@@ -96,8 +104,9 @@ def query_sdss( ra, dec, boxsize=10., container=None, cont_index=1 ):
     '''
     # search for SDSS objects around coordinates with
     #  defined box size, return only basic parameters, and
-    #  sort by distance from coordinates
-    request = 'findsdss8 -c "{} {}" -bs {} -e0 -sr'.format( ra, dec, boxsize )
+    #  sort by distance from coordinates, and return a maximum
+    #  of 10000 sources (i.e. return everything)
+    request = 'findsdss8 -c "{} {}" -bs {} -e0 -sr -m 10000'.format( ra, dec, boxsize )
     out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
     o,e = out.communicate()
     # parse the response
@@ -141,6 +150,13 @@ def parse_2mass( s ):
                 err = .25
             tmp += [mag, err]
         out.append( tmp )
+    '''
+        except:
+            # silently fail on sources that are not formatted properly,
+            #  they are probably anomalous anyways.
+            pass
+    '''
+            
     return np.array(out)
 
 
@@ -155,8 +171,9 @@ def query_2mass( ra, dec, boxsize=10., container=None, cont_index=0 ):
     '''
     # search for 2Mass point sources around coordinates with
     #  defined box size, return only basic parameters, and 
-    #  sort by distance from coordinates
-    request = 'find2mass -c {} {} -bs {} -eb -sr'.format( ra, dec, boxsize )
+    #  sort by distance from coordinates, and return a 
+    #  maximum of 10000 sources (i.e. return everything)
+    request = 'find2mass -c {} {} -bs {} -eb -sr -m 10000'.format( ra, dec, boxsize )
     out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
     o,e = out.communicate()
     # parse the response
@@ -192,35 +209,41 @@ def parse_usnob1( s ):
     out = []
     lines = [lll for lll in s.split('\n') if lll and lll[0]!='#']
     for line in lines:
-        line = line.split('|')
-        # RA and DEC
-        tmp = [ val for val in line[0].split(' ') if val ]
-        if '+' in tmp[1]:
-            char = '+'
-        else: 
-            char = '-'
-        ra  = float(tmp[1].split(char)[0])
-        dec = float(char + tmp[1].split(char)[1])
+        try:
+            line = line.split('|')
+            # RA and DEC
+            tmp = [ val for val in line[0].split(' ') if val ]
+            if '+' in tmp[1]:
+                char = '+'
+            else: 
+                char = '-'
+            ra  = float(tmp[1].split(char)[0])
+            dec = float(char + tmp[1].split(char)[1])
 
-        # magnitudes and errors
-        #  in order: B, B_sigma, R, R_sigma
-        Bs, Rs = [], []
-        for i in range(obs_count):
-            tmp = line[1 + 2*i]
-            if '-' not in tmp:
-                Bs.append( float(tmp) )
-            tmp = line[2 + 2*i]
-            if '-' not in tmp:
-                Rs.append( float(tmp) )
-        # ignore sources that don't include at least one B and one R observation
-        if not Bs or not Rs: continue
-        B = np.mean(Bs)
-        R = np.mean(Rs)
-        # each measure has an error of about .3 mag
-        B_err = 0.3/np.sqrt(len(Bs))
-        R_err = 0.3/np.sqrt(len(Rs))
+            # magnitudes and errors
+            #  in order: B, B_sigma, R, R_sigma
+            Bs, Rs = [], []
+            for i in range(obs_count):
+                tmp = line[1 + 2*i]
+                if '-' not in tmp:
+                    Bs.append( float(tmp) )
+                tmp = line[2 + 2*i]
+                if '-' not in tmp:
+                    Rs.append( float(tmp) )
+            # ignore sources that don't include at least one B and one R observation
+            if not Bs or not Rs: continue
+            B = np.mean(Bs)
+            R = np.mean(Rs)
+            # each measure has an error of about .3 mag
+            B_err = 0.3/np.sqrt(len(Bs))
+            R_err = 0.3/np.sqrt(len(Rs))
         
-        out.append( [ra, dec, B, B_err, R, R_err] )
+            out.append( [ra, dec, B, B_err, R, R_err] )
+        except:
+            # silently fail on sources that are not formatted properly,
+            #  they are probably anomalous anyways.
+            pass
+        
     return np.array(out)
 
 
@@ -235,8 +258,9 @@ def query_usnob1( ra, dec, boxsize=10., container=None, cont_index=2 ):
     '''
     # search for USNOB1 point sources around coordinates with
     #  defined box size, return only basic parameters, and 
-    #  sort by distance from coordinates
-    request = 'findusnob1 -c {} {} -bs {} -eb -sr'.format( ra, dec, boxsize )
+    #  sort by distance from coordinates, and return a maximum
+    #  of 10000 objects (i.e. return everything)
+    request = 'findusnob1 -c {} {} -bs {} -eb -sr -m 10000'.format( ra, dec, boxsize )
     out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
     o,e = out.communicate()
     usnob1_objects = parse_usnob1(o)
@@ -256,6 +280,8 @@ def query_all( ra, dec, boxsize=10. ):
     Query all sources, with an independent thread for each
      so that the communications happen concurrently, to save
      time.
+    
+    returns: [2Mass, SDSS, USNOB1]
     '''
     # results is a container into which the threads will put their responses
     results = [None]*3
@@ -467,11 +493,11 @@ def test_sdss_interp( ra, dec, redden=True ):
     plt.ylabel('Mag')
     plt.title('Model: {}K'.format(round(T)) )
     plt.show()
-    
-    
-def produce_catalog( field_center, field_width, redden=True, savefile=None ):
+
+
+def produce_catalog( field_center, field_width, redden=True ):
     '''
-    Save to file a catalog of all objects found in field.
+    Create a catalog of all objects found in field.
     Requires records in 2MASS + (SDSS and/or USNOB1).
     
     field_center: (ra, dec) in decimal degrees
@@ -480,9 +506,20 @@ def produce_catalog( field_center, field_width, redden=True, savefile=None ):
     ra, dec = field_center #in decimal degrees
     mass, sdss, usnob = query_all(ra, dec, boxsize=field_width)
     
+    # require 2mass for objects - if we're in a field without any 
+    #  2mass point sources we're just out of luck.
+    if mass == None:
+        return [],[]
+    
     # match sdss, usnob objects to 2mass objects
-    sdss_matches = identify_matches( mass[:,:2], sdss[:,:2] )
-    usnob_matches = identify_matches( mass[:,:2], usnob[:,:2] )
+    if sdss != None:
+        sdss_matches = identify_matches( mass[:,:2], sdss[:,:2] )
+    else:
+        sdss_matches = [None]*len(mass)
+    if usnob != None:
+        usnob_matches = identify_matches( mass[:,:2], usnob[:,:2] )
+    else:
+        usnob_matches = [None]*len(mass)
 
     # assemble a list of objects, sorted in order by 2MASS, with magnitudes
     #  and errors for all surveys, and keep track of the mode with which
@@ -511,7 +548,6 @@ def produce_catalog( field_center, field_width, redden=True, savefile=None ):
         modes.append( mode )
         object_coords.append( obj[:2] )
         
-    
     # now fit a model to each object, and construct the final SED,
     #  filling in missing observations with synthetic photometry.
     final_seds = []
@@ -544,6 +580,49 @@ def produce_catalog( field_center, field_width, redden=True, savefile=None ):
         sed[~mask] = model[~mask]
         final_seds.append(sed)
     
+    return object_coords, final_seds
+        
+
+def catalog( field_center, field_width, redden=True, savefile=None, max_size=900.):
+    '''
+    Main cataloging function, this produces a catalog of all objects found in field.
+    Requires records in 2MASS + (SDSS and/or USNOB1).
+
+    field_center: (ra, dec) in decimal degrees
+    field_width: full width of field box, in arcseconds
+    redden: boolean; account for galactic reddening
+    savefile: optional; saves to specified file if present, otherwise returns answer
+
+    NOTE: if requested field_width is greater than max_size (in arcsec),
+          this splits up the request into 900-arcsec chunks, to save time.
+    '''
+    if field_width > max_size:
+        # split field up into smaller chunks, to run more quickly
+        a2d = 2.778e-4 #conversion between arcseconds & degrees
+
+        # first, convert both to degrees from arcseconds:
+        n_tile = np.ceil(field_width/max_size).astype(int) # number of tiles needed in each dimension
+        w_tile = (field_width/n_tile)*a2d # width of each tile in degrees
+
+        ra,dec = field_center
+        centers = []
+        rr = ra - a2d*field_width/2. + w_tile/2.  # the beginning positions of the tiling
+        for i in range(n_tile):
+            dd = dec - a2d*field_width/2. + w_tile/2.
+            for j in range(n_tile):
+                centers.append( (rr, dd) )
+                dd += w_tile
+            rr += w_tile
+
+        # go through each tile and accumulate the results:
+        object_coords, final_seds = [],[]
+        for i,center in enumerate(centers):
+            oc, fs = produce_catalog( center, w_tile/a2d, redden=redden )
+            object_coords += oc
+            final_seds += fs
+    else:
+        object_coords, final_seds = produce_catalog( field_center, field_width, redden=redden )
+
     # Done! Save to file, or return SEDs and coordinates
     if savefile:
         format = lambda x: str(round(x, 3)) # a quick function to format the output
@@ -556,5 +635,4 @@ def produce_catalog( field_center, field_width, redden=True, savefile=None ):
         fff.close()
     else:
         return np.array(object_coords), np.array(final_seds)
-        
-        
+

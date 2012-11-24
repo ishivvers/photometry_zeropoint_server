@@ -17,7 +17,7 @@ to view the SED of an object as determined by fits to BRJHK photometry,
 
 to produce a catalog of all objects possible in a field, run:
 > from get_SEDs import *
-> produce_catalog( (314.136483, -6.081352), 1800., savefile='catalog.txt' )
+> catalog( (314.136483, -6.081352), 1800., savefile='catalog.txt' )
 *** catalog of objects in a 1/2 degree field centered at 314.136483, -6.081352 ***
 
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

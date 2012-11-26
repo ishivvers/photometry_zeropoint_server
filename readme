@@ -6,19 +6,18 @@ Currently, it produces a catalog of magnitudes
 
 EXAMPLEs:
 
-to view the SED of an object as determined by fits to BRJHK photometry,
+To view the SED of an object as determined by fits to BRJHK photometry,
  compared to the full SED including ugrizy photometry, run:
 > from get_SEDs import *
 > test_sdss_interp( 314.136483, -6.081352 )
 *** shows modeled SED (without including SDSS mags) compared to true ***
-> construct_SED( 314.136483, -6.081352 )
-*** to view other sources, input the 2MASS coordinates of another object
-    present in all three catalogs ***
+
+To view the SED of any source, with model compared to observations:
+> show_SED( 314.136483, -6.081352 )
 
 to produce a catalog of all objects possible in a field, run:
-> from get_SEDs import *
 > catalog( (314.136483, -6.081352), 1800., savefile='catalog.txt' )
-*** catalog of objects in a 1/2 degree field centered at 314.136483, -6.081352 ***
+*** catalog of objects in a 1/2 degree (1800") field centered at 314.136483, -6.081352 ***
 
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 to do:

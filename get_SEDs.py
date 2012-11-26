@@ -378,18 +378,6 @@ def produce_catalog( field_center, field_width, redden=True, return_model=False 
             modes.append( mode )
             object_coords.append( obj[:2] )
 
-    # now go through sdss objects not in 2mass and assemble a catalog of
-    #  all objects present only in sdss
-    if sdss != None:
-        if mass == None: # if no 2mass sources, we never matched anything
-            remaining_sdss = sdss
-        else:
-            remaining_sdss = [val for i,val in enumerate(sdss) if i not in sdss_matches]
-        for i,obj in enumerate(remaining_sdss):
-            object_mags.append( obj[2:] )
-            modes.append( 2 )
-            object_coords.append( obj[:2] )
-
     # now fit a model to each object, and construct the final SED,
     #  filling in missing observations with synthetic photometry.
     final_seds = []
@@ -401,8 +389,6 @@ def produce_catalog( field_center, field_width, redden=True, return_model=False 
             mask = [1,1,1,1,1,0,0,0,1,1,1]
         elif mode == 1: # usnob+2mass
             mask = [0,0,0,0,0,0,1,1,1,1,1]
-        elif mode == 2: # sdss only
-            mask = [1,1,1,1,1,0,0,0,0,0,0]
         mask = np.array(mask).astype(bool)
 
         if redden:
@@ -412,7 +398,6 @@ def produce_catalog( field_center, field_width, redden=True, return_model=False 
             obs[::2] -= reddening[mask]
 
         model, T = choose_model( obs, mask )
-        print 'using model:', T
 
         if redden:
             # re-redden the model and observations
@@ -557,7 +542,7 @@ def choose_model( obs, mask, models=MODELS ):
 # MAIN FUNCTION
 ############################################
 
-def catalog( field_center, field_width, redden=True, savefile=None, max_size=450.):
+def catalog( field_center, field_width, redden=True, savefile=None, max_size=1800.):
     '''
     Main cataloging function, this produces a catalog of all objects found in field.
     Requires records in 2MASS + (SDSS and/or USNOB1).
@@ -590,7 +575,7 @@ def catalog( field_center, field_width, redden=True, savefile=None, max_size=450
         fff = open(savefile,'w')
         fff.write('# Produced by get_SEDs.py \n# Catalog of objects in field of ' +
                   'size {} (arcsec) centered at {}.\n'.format( field_width, field_center) +
-                  '# modes: 0 -> SDSS+2MASS; 1 -> USNOB1+2MASS;, 2 -> SDSS only\n'
+                  '# modes: 0 -> SDSS+2MASS; 1 -> USNOB1+2MASS\n'
                   '# RA\tDEC\t' + '\t'.join(ALL_FILTERS) + '\tmode\n')
         for i,row in enumerate(final_seds):
             fff.write( '\t'.join( map(str, object_coords[i]) ) + '\t' + '\t'.join( map(format, row) ) + '\t{}\n'.format(modes[i]) )
@@ -649,41 +634,24 @@ def test_z_errors( ra, dec, redden=True, size=900. ):
         if mass_matches[i] != None and usnob_matches[i] !=None:
             i_mass = mass_matches[i]
             i_usnob = usnob_matches[i]
-            # fit a model to just SDSS, ignoring z
-            obs = obj[2:-2]
-            z = obj[-2] # keep track of the true z-band mag
-            object_mags.append( obs )
-            modes.append( 2 )
-            z_mags.append( z )
-            # now fit to SDSS+2MASS
+            # fit to SDSS+2MASS
             obs = np.hstack( (obj[2:-2], mass[i_mass][2:]) )
+            z = obj[-2] # keep track of the true z-band mag
             object_mags.append( obs )
             modes.append( 0 )
             z_mags.append( z )
-            # and finally to USNOB+2MASS
+            # also fit to USNOB+2MASS
             obs = np.hstack( (usnob[i_usnob][2:], mass[i_mass][2:]) )
             object_mags.append( obs )
             modes.append( 1 )
             z_mags.append( z )
         elif mass_matches[i] != None and usnob_matches[i] == None:
             i_mass = mass_matches[i]
-            # fit to just SDSS
-            obs = obj[2:-2]
-            z = obj[-2]
-            object_mags.append( obs )
-            modes.append( 2 )
-            z_mags.append( z )
-            # now to SDSS+2MASS
+            # fit to SDSS+2MASS
             obs = np.hstack( (obj[2:-2], mass[i_mass][2:]) )
+            z = obj[-2]
             object_mags.append( obs )
             modes.append( 0 )
-            z_mags.append( z )
-        elif mass_matches[i] == None:
-            # fit to just SDSS
-            obs = obj[2:-2]
-            z = obj[-2]
-            object_mags.append( obs )
-            modes.append( 2 )
             z_mags.append( z )
 
 
@@ -692,15 +660,13 @@ def test_z_errors( ra, dec, redden=True, size=900. ):
     #  predicted z-band and actual.
     # Modes are defined as:
     #  0 -> SDSS+2MASS; 1 -> USNOB+2MASS; 2 -> SDSS ONLY
-    errors_0, errors_1, errors_2 = [],[],[]
+    errors_0, errors_1 = [],[]
     for i, obs in enumerate(object_mags):
         mode = modes[i]
         if mode == 0:
             mask = [1,1,1,1,0,0,0,0,1,1,1]
         elif mode == 1:
             mask = [0,0,0,0,0,0,1,1,1,1,1]
-        elif mode == 2:
-            mask = [1,1,1,1,0,0,0,0,0,0,0]
         mask = np.array(mask).astype(bool)
 
         if redden:
@@ -722,23 +688,18 @@ def test_z_errors( ra, dec, redden=True, size=900. ):
             errors_0.append(error)
         elif mode == 1:
             errors_1.append(error)
-        elif mode == 2:
-            errors_2.append(error)
         
     # now plot a histogram for each type
     alph = .5
-    bns = map( lambda x: round(x,2), np.linspace(-5, 5, 50) )
+    bns = map( lambda x: round(x,2), np.linspace(-2, 2, 50) )
     plt.hist( errors_0, bins=bns, alpha=alph, normed=True, color='g', label='SDSS+2MASS' )
     plt.hist( errors_1, bins=bns, alpha=alph, normed=True, color='b', label='USNOB1+2MASS' )
-    plt.hist( errors_2, bins=bns, alpha=alph, normed=True, color='r', label='SDSS ONLY' )
     plt.legend(loc='best')
     plt.ylabel('Normalized count')
     plt.xlabel('Error in z-band (mag)')
-    plt.title('SDSS+2MASS: {} --- USNOB1+2MASS: {} --- SDSS ONLY: {}'.format(len(errors_0),
-                                                                len(errors_1), len(errors_2)) )
+    plt.title('SDSS+2MASS: {} --- USNOB1+2MASS: {}'.format(len(errors_0), len(errors_1)) )
     plt.show()
-    
-    return errors_0, errors_1, errors_2
+
         
 
 # example: ra, dec = (314.136483, -6.081352)

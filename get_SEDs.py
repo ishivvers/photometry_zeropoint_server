@@ -7,8 +7,6 @@ Requires:
 - all_models.npy, a file produced by assemble_models.py
 - Schlegel et al. dust extiction maps in a folder named dust_maps
 
-TO DO:
-- make it work with sdss, sdss+2mass, or usnob+2mass
 '''
 
 
@@ -375,27 +373,24 @@ def error_C(C, model, obs):
     return np.sum( (nm-obs)**2 )
 
 
-def choose_model( obs, mode, models=MODELS ):
+def choose_model( obs, mask, models=MODELS ):
     '''
     Find and return the best model for obs.
     Do this by fitting to all magnitudes weighted by error.
     
     obs: an array of the observed magnitudes and errors, in
            order as defined by the mode key (see below)
-    mode: defines what colors to use in the fit, i.e. what observations exist
-           0 -> SDSS+2MASS; 1 -> USNOB+2MASS; 2 -> SDSS ONLY
+    mask: defines what colors to use in the fit, i.e. what observations exist
+           in order: [u,g,r,i,z,y,B,R,J,H,K]
     models: an array of modeled SEDs, where 0th entry is temperature
              of the model, and the rest are magnitudes
+
     '''
-    # mask is an array used to choose which modeled magnitudes to
-    #  fit the observations to
-    if mode == 0:
-        mask = [0,1,1,1,1,1,0,0,0,1,1,1]
-    elif mode == 1:
-        mask = [0,0,0,0,0,0,0,1,1,1,1,1]
-    elif mode == 2:
-        mask = [0,1,1,1,1,1,0,0,0,0,0,0]
-    mask = np.array(mask).astype(bool)
+    # mask is an array used to choose which modeled magnitudes
+    #  correspond to the included observations.
+    #  Note: I append a leading zero to ignore the temperature of the model
+    #   (saved in position 0 for all models)
+    mask = np.hstack( (np.array([False]), np.array(mask).astype(bool)) )
     
     mags = obs[::2]
     zerod_mags = mags - min(mags) # recenter to compare to models
@@ -417,97 +412,17 @@ def choose_model( obs, mode, models=MODELS ):
     return (best_model[1:] + C, best_model[0])
 
 
-
-############################################
-# COMPLETE TEST FUNCTIONS
-############################################
-
-# example: ra, dec = (314.136483, -6.081352)
-def construct_SED( ra, dec, redden=True ):
-    '''
-    Construct the SED for a single object, using what cataloged
-    magnitudes we can find as well as synthetic photometry from 
-    modeled spectrum.
-    
-    NEEDS UPDATE
-    '''
-    # simply assume the first object returned by each catalog
-    #  is the relevant object
-    mass, sdss, usnob = query_all(ra, dec, boxsize=1.)
-    obs = np.hstack( (sdss[0][2:], mass[0][2:]) )
-    
-    if redden:
-        # de-redden the observations
-        filts = ['u','g','r','i','z','J','H','K']
-        obs[::2] -= get_reddening( ra, dec, filts )
-    
-    # fit a model to the observations
-    model, T = choose_model( obs, 0 )
-
-    if redden:
-        # redden the model and re-redden the obs
-        model += get_reddening( ra, dec, ALL_FILTERS )
-        obs[::2] += get_reddening( ra, dec, filts )
-        
-    mask = np.array([0,1,1,1,1,1,0,1,1,1,1,1]).astype(bool)
-    full_obs = np.hstack( (sdss[0][2:], usnob[0][2:], mass[0][2:]) )
-    plt.scatter( MODELS[0][mask], full_obs[::2], c='g', label='observations' )
-    plt.scatter( MODELS[0][1:], model, c='b', marker='D', label='model' )
-    plt.legend(loc='best')
-    plt.xlabel('Wavelength (A)')
-    plt.ylabel('Mag')
-    plt.title( 'Model: {}K'.format(round(T)) )
-    plt.show()
-
-# example: ra, dec = (314.136483, -6.081352)
-def test_sdss_interp( ra, dec, redden=True ):
-    '''
-    Construct the SED of a single object (present in all 3 catalogs)
-    without using the SDSS mags, and see how well we estimate
-    SDSS mags from USNOB + 2MASS
-    '''
-    # query the catalogs
-    mass, sdss, usnob = query_all(ra, dec, boxsize=1.)
-    obs = np.hstack( (usnob[0][2:], mass[0][2:]) )
-    
-    if redden:
-        # de-redden the observations
-        filts = ['B','R','J','H','K']
-        obs[::2] -= get_reddening( ra, dec, filts )
-    
-    # fit a model to the observations
-    model, T = choose_model( obs, 1 )
-    
-    if redden:
-        # redden the model and re-redden the observations
-        model += get_reddening( ra, dec, ALL_FILTERS )
-        filts = ['B','R','J','H','K']
-        obs[::2] += get_reddening( ra, dec, filts )
-        
-    
-    # plot it up
-    mask = np.array([0,1,1,1,1,1,0,1,1,1,1,1]).astype(bool)
-    full_obs = np.hstack( (sdss[0][2:], obs) )
-    plt.scatter( MODELS[0][mask], full_obs[::2], c='g', label='observations' )
-    plt.scatter( MODELS[0][1:], model, c='b', marker='D', label='model' )
-    plt.legend(loc='best')
-    plt.xlabel('Wavelength (A)')
-    plt.ylabel('Mag')
-    plt.title('Model: {}K'.format(round(T)) )
-    plt.show()
-
-
 def produce_catalog( field_center, field_width, redden=True ):
     '''
     Create a catalog of all objects found in field.
     Requires records in 2MASS + (SDSS and/or USNOB1).
-    
+
     field_center: (ra, dec) in decimal degrees
     field_width: full width of field box, in arcseconds
     '''
     ra, dec = field_center #in decimal degrees
     mass, sdss, usnob = query_all(ra, dec, boxsize=field_width)
-    
+
     object_mags = []
     modes = []
     object_coords = []
@@ -539,7 +454,7 @@ def produce_catalog( field_center, field_width, redden=True ):
             object_mags.append( obs )
             modes.append( mode )
             object_coords.append( obj[:2] )
-    
+
     # now go through sdss objects not in 2mass and assemble a catalog of
     #  all objects present only in sdss
     if sdss != None:
@@ -548,12 +463,14 @@ def produce_catalog( field_center, field_width, redden=True ):
             object_mags.append( obj[2:] )
             modes.append( 2 )
             object_coords.append( obj[:2] )
-        
+
     # now fit a model to each object, and construct the final SED,
     #  filling in missing observations with synthetic photometry.
     final_seds = []
     for i, obs in enumerate(object_mags):
         mode = modes[i]
+        # the masks show, in order, which bands are included
+        #  order: u,g,r,i,z,y,B,R,J,H,K
         if mode == 0: # sdss+2mass
             mask = [1,1,1,1,1,0,0,0,1,1,1]
         elif mode == 1: # usnob+2mass
@@ -561,14 +478,14 @@ def produce_catalog( field_center, field_width, redden=True ):
         elif mode == 2: # sdss only
             mask = [1,1,1,1,1,0,0,0,0,0,0]
         mask = np.array(mask).astype(bool)
-        
+
         if redden:
             reddening = get_reddening( ra,dec, ALL_FILTERS )
             # de-redden the observations before comparing
             #  to the models
             obs[::2] -= reddening[mask]
 
-        model, T = choose_model( obs, mode )
+        model, T = choose_model( obs, mask )
         if redden:
             # re-redden the model and observations
             obs[::2] += reddening[mask]
@@ -580,11 +497,43 @@ def produce_catalog( field_center, field_width, redden=True ):
         # fill in rest with modeled magnitudes
         sed[~mask] = model[~mask]
         final_seds.append(sed)
-    
-    return object_coords, final_seds, modes
-        
 
-def catalog( field_center, field_width, redden=True, savefile=None, max_size=900.):
+    return object_coords, final_seds, modes
+
+
+def split_field( field_center, field_width, max_size ):
+    '''
+    split a single field into many smaller chunks, to save time matching sources.
+    
+    field_center: (ra, dec) in decimal degrees
+    field_width: one side of box, in arcseconds
+    max_size: maximum size of tile, in arcseconds
+    
+    Returns: list of new field centers, width of new fields (in arcseconds)
+    '''
+    a2d = 2.778e-4 #conversion between arcseconds & degrees
+
+    n_tile = np.ceil(field_width/max_size).astype(int) # number of tiles needed in each dimension
+    w_tile = (field_width/n_tile)*a2d # width of each tile in degrees
+
+    ra,dec = field_center
+    centers = []
+    rr = ra - a2d*field_width/2. + w_tile/2.  # the beginning positions of the tiling
+    for i in range(n_tile):
+        dd = dec - a2d*field_width/2. + w_tile/2.
+        for j in range(n_tile):
+            centers.append( (rr, dd) )
+            dd += w_tile
+        rr += w_tile
+    
+    return centers, w_tile/a2d
+
+
+############################################
+# MAIN FUNCTION
+############################################
+
+def catalog( field_center, field_width, redden=True, savefile=None, max_size=450.):
     '''
     Main cataloging function, this produces a catalog of all objects found in field.
     Requires records in 2MASS + (SDSS and/or USNOB1).
@@ -599,26 +548,12 @@ def catalog( field_center, field_width, redden=True, savefile=None, max_size=900
     '''
     if field_width > max_size:
         # split field up into smaller chunks, to run more quickly
-        a2d = 2.778e-4 #conversion between arcseconds & degrees
-
-        # first, convert both to degrees from arcseconds:
-        n_tile = np.ceil(field_width/max_size).astype(int) # number of tiles needed in each dimension
-        w_tile = (field_width/n_tile)*a2d # width of each tile in degrees
-
-        ra,dec = field_center
-        centers = []
-        rr = ra - a2d*field_width/2. + w_tile/2.  # the beginning positions of the tiling
-        for i in range(n_tile):
-            dd = dec - a2d*field_width/2. + w_tile/2.
-            for j in range(n_tile):
-                centers.append( (rr, dd) )
-                dd += w_tile
-            rr += w_tile
+        centers, tile_width = split_field( field_center, field_width, max_size )
 
         # go through each tile and accumulate the results:
         object_coords, final_seds, modes = [],[],[]
         for i,center in enumerate(centers):
-            oc, fs, ms = produce_catalog( center, w_tile/a2d, redden=redden )
+            oc, fs, ms = produce_catalog( center, tile_width, redden=redden )
             object_coords += oc
             final_seds += fs
             modes += ms
@@ -638,4 +573,212 @@ def catalog( field_center, field_width, redden=True, savefile=None, max_size=900
         fff.close()
     else:
         return np.array(object_coords), np.array(final_seds)
+
+
+############################################
+# COMPLETE TEST FUNCTIONS
+############################################
+
+def test_z_errors( ra, dec, redden=True, size=900. ):
+    '''
+    Test the error accrued for all sources in a field when estimating 
+     SDSS z-band photometry from all modes.  y-band photometry is 
+     expected to be similar or better than this.
+    
+    Run this on any field within the SDSS footprint.
+
+    ra,dec: coordinates in decimal degrees
+    redden: if True, account for galactic reddening when modeling photometry
+    size: size of field to query around ra, dec (arseconds)
+    '''
+    mass, sdss, usnob = query_all(ra, dec, boxsize=size)
+
+    ##### the code between 5 hashes is modified from produce_catalog, above #####
+    object_mags = []
+    z_mags = []
+    modes = []
+    object_coords = []
+
+    # match sdss, usnob objects to 2mass objects
+    if sdss != None:
+        mass_matches = identify_matches( sdss[:,:2], mass[:,:2] )
+        usnob_matches = identify_matches( sdss[:,:2], usnob[:,:2] )
+    else:
+        print 'Must run this for coordinates in SDSS footprint!'
+        exit()
+
+    # Go through SDSS objects and assemble a catalog
+    #  of all objects present in multiple catalogs
+    for i,obj in enumerate(sdss):
+        if mass_matches[i] != None and usnob_matches[i] !=None:
+            i_mass = mass_matches[i]
+            i_usnob = usnob_matches[i]
+            # fit a model to just SDSS, ignoring z
+            obs = obj[2:-2]
+            z = obj[-2] # keep track of the true z-band mag
+            object_mags.append( obs )
+            modes.append( 2 )
+            z_mags.append( z )
+            # now fit to SDSS+2MASS
+            obs = np.hstack( (obj[2:-2], mass[i_mass][2:]) )
+            object_mags.append( obs )
+            modes.append( 0 )
+            z_mags.append( z )
+            # and finally to USNOB+2MASS
+            obs = np.hstack( (usnob[i_usnob][2:], mass[i_mass][2:]) )
+            object_mags.append( obs )
+            modes.append( 1 )
+            z_mags.append( z )
+        elif mass_matches[i] != None and usnob_matches[i] == None:
+            i_mass = mass_matches[i]
+            # fit to just SDSS
+            obs = obj[2:-2]
+            z = obj[-2]
+            object_mags.append( obs )
+            modes.append( 2 )
+            z_mags.append( z )
+            # now to SDSS+2MASS
+            obs = np.hstack( (obj[2:-2], mass[i_mass][2:]) )
+            object_mags.append( obs )
+            modes.append( 0 )
+            z_mags.append( z )
+        elif mass_matches[i] == None:
+            # fit to just SDSS
+            obs = obj[2:-2]
+            z = obj[-2]
+            object_mags.append( obs )
+            modes.append( 2 )
+            z_mags.append( z )
+
+
+    # now fit a model to each object, and construct the final SED,
+    #  without including the z-band.  Determine errors between
+    #  predicted z-band and actual.
+    # Modes are defined as:
+    #  0 -> SDSS+2MASS; 1 -> USNOB+2MASS; 2 -> SDSS ONLY
+    errors_0, errors_1, errors_2 = [],[],[]
+    for i, obs in enumerate(object_mags):
+        mode = modes[i]
+        if mode == 0:
+            mask = [1,1,1,1,0,0,0,0,1,1,1]
+        elif mode == 1:
+            mask = [0,0,0,0,0,0,1,1,1,1,1]
+        elif mode == 2:
+            mask = [1,1,1,1,0,0,0,0,0,0,0]
+        mask = np.array(mask).astype(bool)
+
+        if redden:
+            reddening = get_reddening( ra,dec, ALL_FILTERS )
+            # de-redden the observations before comparing
+            #  to the models
+            obs[::2] -= reddening[mask]
+
+        model, T = choose_model( obs, mask )
+        if redden:
+            # re-redden the model and observations
+            obs[::2] += reddening[mask]
+            model += reddening
+
+        true_z = z_mags[i]
+        guess_z = model[4]
+        error = true_z - guess_z
+        if mode == 0:
+            errors_0.append(error)
+        elif mode == 1:
+            errors_1.append(error)
+        elif mode == 2:
+            errors_2.append(error)
+        
+    # now plot a histogram for each type
+    alph = .5
+    bns = map( lambda x: round(x,2), np.linspace(-5, 5, 50) )
+    plt.hist( errors_0, bins=bns, alpha=alph, normed=True, color='g', label='SDSS+2MASS' )
+    plt.hist( errors_1, bins=bns, alpha=alph, normed=True, color='b', label='USNOB1+2MASS' )
+    plt.hist( errors_2, bins=bns, alpha=alph, normed=True, color='r', label='SDSS ONLY' )
+    plt.legend(loc='best')
+    plt.ylabel('Normalized count')
+    plt.xlabel('Error in z-band (mag)')
+    plt.title('SDSS+2MASS: {} --- USNOB1+2MASS: {} --- SDSS ONLY: {}'.format(len(errors_0),
+                                                                len(errors_1), len(errors_2)) )
+    plt.show()
+    
+    return errors_0, errors_1, errors_2
+        
+
+# example: ra, dec = (314.136483, -6.081352)
+def construct_SED( ra, dec, redden=True ):
+    '''
+    Construct the SED for a single object, using what cataloged
+    magnitudes we can find as well as synthetic photometry from 
+    modeled spectrum.
+    
+    REQUIRES OBJECT BE IN ALL THREE CATALOGS.
+    '''
+    # simply assume the first object returned by each catalog
+    #  is the relevant object
+    mass, sdss, usnob = query_all(ra, dec, boxsize=1.)
+    obs = np.hstack( (sdss[0][2:], mass[0][2:]) )
+    
+    if redden:
+        # de-redden the observations
+        filts = ['u','g','r','i','z','J','H','K']
+        obs[::2] -= get_reddening( ra, dec, filts )
+    
+    # fit a model to the observations
+    model, T = choose_model( obs, [1,1,1,1,1,0,0,0,1,1,1] )
+
+    if redden:
+        # redden the model and re-redden the obs
+        model += get_reddening( ra, dec, ALL_FILTERS )
+        obs[::2] += get_reddening( ra, dec, filts )
+        
+    mask = np.array([0,1,1,1,1,1,0,1,1,1,1,1]).astype(bool)
+    full_obs = np.hstack( (sdss[0][2:], usnob[0][2:], mass[0][2:]) )
+    plt.scatter( MODELS[0][mask], full_obs[::2], c='g', label='observations' )
+    plt.scatter( MODELS[0][1:], model, c='b', marker='D', label='model' )
+    plt.legend(loc='best')
+    plt.xlabel('Wavelength (A)')
+    plt.ylabel('Mag')
+    plt.title( 'Model: {}K'.format(round(T)) )
+    plt.show()
+
+# example: ra, dec = (314.136483, -6.081352)
+def test_sdss_interp( ra, dec, redden=True ):
+    '''
+    Construct the SED of a single object (present in all 3 catalogs)
+    without using the SDSS mags, and see how well we estimate
+    SDSS mags from USNOB + 2MASS
+    
+    REQUIRES OBJECT TO BE IN ALL THREE CATALOGS.
+    '''
+    # query the catalogs
+    mass, sdss, usnob = query_all(ra, dec, boxsize=1.)
+    obs = np.hstack( (usnob[0][2:], mass[0][2:]) )
+    
+    if redden:
+        # de-redden the observations
+        filts = ['B','R','J','H','K']
+        obs[::2] -= get_reddening( ra, dec, filts )
+    
+    # fit a model to the observations
+    model, T = choose_model( obs, [0,0,0,0,0,0,1,1,1,1,1] )
+    
+    if redden:
+        # redden the model and re-redden the observations
+        model += get_reddening( ra, dec, ALL_FILTERS )
+        filts = ['B','R','J','H','K']
+        obs[::2] += get_reddening( ra, dec, filts )
+        
+    
+    # plot it up
+    mask = np.array([0,1,1,1,1,1,0,1,1,1,1,1]).astype(bool)
+    full_obs = np.hstack( (sdss[0][2:], obs) )
+    plt.scatter( MODELS[0][mask], full_obs[::2], c='g', label='observations' )
+    plt.scatter( MODELS[0][1:], model, c='b', marker='D', label='model' )
+    plt.legend(loc='best')
+    plt.xlabel('Wavelength (A)')
+    plt.ylabel('Mag')
+    plt.title('Model: {}K'.format(round(T)) )
+    plt.show()
+
 

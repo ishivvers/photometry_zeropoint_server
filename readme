@@ -23,10 +23,10 @@ To view the SED of any single source, with model compared to observations:
 *** other examples:
     # USNOB1+2MASS
     75.005564, 49.999882
-	75.032986, 49.988026
-	# SDSS+2MASS
-	199.899058, 49.766365
-	199.712023, 49.902397
+    75.032986, 49.988026
+    # SDSS+2MASS
+    199.899058, 49.766365
+    199.712023, 49.902397
 *** or any coordinate pair found by catalog()
 
 To analyze the errors accrued for determining z-band photometry

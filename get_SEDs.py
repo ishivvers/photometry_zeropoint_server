@@ -522,6 +522,7 @@ def choose_model( obs, mask, models=MODELS ):
     mags = obs[::2]
     zerod_mags = mags - min(mags) # recenter to compare to models
     weights = 1./obs[1::2]
+    #weights = np.ones(len(obs[1::2])) #try flat weights
 
     # Go through all models and choose the one with the most similar SED
     #  Keep track of the sum_squared error
@@ -590,7 +591,7 @@ def catalog( field_center, field_width, redden=True, savefile=None, max_size=180
 ############################################
 
 
-def test_z_errors( ra, dec, redden=True, size=900. ):
+def test_SDSS_errors( ra, dec, band_name='z', redden=True, size=900. ):
     '''
     Test the error accrued for all sources in a field when estimating 
      SDSS z-band photometry from all modes.  y-band photometry is 
@@ -599,14 +600,35 @@ def test_z_errors( ra, dec, redden=True, size=900. ):
     Run this on any field within the SDSS footprint.
 
     ra,dec: coordinates in decimal degrees
+    band: SDSS passband to derive errors for
     redden: if True, account for galactic reddening when modeling photometry
     size: size of field to query around ra, dec (arseconds)
     '''
+    if band_name == 'u':
+        sdss_mask = [0,0,1,1,1,1,1,1,1,1]
+        i_band = 0
+    elif band_name == 'g':
+        sdss_mask = [1,1,0,0,1,1,1,1,1,1]
+        i_band = 1
+    elif band_name == 'r':
+        sdss_mask = [1,1,1,1,0,0,1,1,1,1]
+        i_band = 2
+    elif band_name == 'i':
+        sdss_mask = [1,1,1,1,1,1,0,0,1,1]
+        i_band = 3
+    elif band_name == 'z':
+        sdss_mask = [1,1,1,1,1,1,1,1,0,0]
+        i_band = 4
+    else:
+        print 'Incorrect band keyword!'
+        exit()
+    sdss_mask = np.array(sdss_mask).astype(bool)
+
     mass, sdss, usnob = query_all(ra, dec, boxsize=size)
 
     ##### the code between 5 hashes is modified from produce_catalog, above #####
     object_mags = []
-    z_mags = []
+    band_mags = []
     modes = []
     object_coords = []
 
@@ -637,24 +659,24 @@ def test_z_errors( ra, dec, redden=True, size=900. ):
             i_mass = mass_matches[i]
             i_usnob = usnob_matches[i]
             # fit to SDSS+2MASS
-            obs = np.hstack( (obj[2:-2], mass[i_mass][2:]) )
-            z = obj[-2] # keep track of the true z-band mag
+            obs = np.hstack( (obj[2:][sdss_mask], mass[i_mass][2:]) )
+            band = obj[2:][~sdss_mask][0] # keep track of the true band mag
             object_mags.append( obs )
             modes.append( 0 )
-            z_mags.append( z )
+            band_mags.append( band )
             # also fit to USNOB+2MASS
             obs = np.hstack( (usnob[i_usnob][2:], mass[i_mass][2:]) )
             object_mags.append( obs )
             modes.append( 1 )
-            z_mags.append( z )
+            band_mags.append( band )
         elif mass_matches[i] != None and usnob_matches[i] == None:
             i_mass = mass_matches[i]
             # fit to SDSS+2MASS
-            obs = np.hstack( (obj[2:-2], mass[i_mass][2:]) )
-            z = obj[-2]
+            obs = np.hstack( (obj[2:][sdss_mask], mass[i_mass][2:]) )
+            band = obj[2:][~sdss_mask][0]
             object_mags.append( obs )
             modes.append( 0 )
-            z_mags.append( z )
+            band_mags.append( band )
 
     # now fit a model to each object, and construct the final SED,
     #  without including the z-band.  Determine errors between
@@ -673,7 +695,7 @@ def test_z_errors( ra, dec, redden=True, size=900. ):
     for i, obs in enumerate(object_mags):
         mode = modes[i]
         if mode == 0:
-            mask = [1,1,1,1,0,0,0,0,1,1,1]
+            mask = list(sdss_mask[::2])+[0,0,0,1,1,1]
         elif mode == 1:
             mask = [0,0,0,0,0,0,1,1,1,1,1]
         mask = np.array(mask).astype(bool)
@@ -691,9 +713,9 @@ def test_z_errors( ra, dec, redden=True, size=900. ):
             model += reddening
 
         # compare calculated z-mag to observed
-        true_z = z_mags[i]
-        guess_z = model[4]
-        error = true_z - guess_z
+        true_band = band_mags[i]
+        guess_band = model[i_band]
+        error = true_band - guess_band
         if mode == 0:
             errors_0.append(error)
         elif mode == 1:
@@ -704,7 +726,7 @@ def test_z_errors( ra, dec, redden=True, size=900. ):
         if mode == 0 and (i_ax0 < len(axs_0)):
             i_ax = i_ax0
             ax = axs_0[i_ax]
-            if i_ax == 1: ax.set_title('SEDs as fit by SDSS+2MASS (excluding z)')
+            if i_ax == 1: ax.set_title('SEDs as fit by SDSS+2MASS (excluding {})'.format(band_name))
             i_ax0 +=1
         elif mode == 1 and (i_ax1 < len(axs_1)):
             i_ax = i_ax1
@@ -714,7 +736,7 @@ def test_z_errors( ra, dec, redden=True, size=900. ):
         if ax != None:
             ax.scatter( MODELS[0][1:][mask], obs[::2], c='k', marker='D', s=20, label='observations' )
             ax.scatter( MODELS[0][1:], model, c='b', marker='o', s=50, alpha=.5, label='model' )
-            ax.scatter( MODELS[0][5], true_z, c='r', marker='D', s=20, label='SDSS-z' )
+            ax.scatter( MODELS[0][1:][i_band], true_band, c='r', marker='D', s=20, label='SDSS-{}'.format(band_name) )
             ax.invert_yaxis()
             if i_ax%pltsize == 0:
                 ax.set_ylabel('Mag')
@@ -731,7 +753,7 @@ def test_z_errors( ra, dec, redden=True, size=900. ):
     plt.hist( errors_1, bins=bns, alpha=alph, normed=True, color='b', label='USNOB1+2MASS' )
     plt.legend(loc='best')
     plt.ylabel('Normalized count')
-    plt.xlabel('Error in z-band (mag)')
+    plt.xlabel('Error in {}-band (mag)'.format(band_name))
     plt.title('SDSS+2MASS: {} --- USNOB1+2MASS: {}'.format(len(errors_0), len(errors_1)) )
     plt.show()
     

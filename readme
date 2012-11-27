@@ -4,26 +4,44 @@ Currently, it produces a catalog of magnitudes
  u,g,r,i,z,y,B,R,J,H,K photometry, using a combination
  of the cataloged magnitudes and synthetic photometry.
 
-EXAMPLEs:
+REQUIRES commmand line tools findsdss8, find2mass, findusnob1
+ - available from http://cdsarc.u-strasbg.fr/doc/cdsclient.html
 
-To view the SED of an object as determined by fits to BRJHK photometry,
- compared to the full SED including ugrizy photometry, run:
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+EXAMPLES:
+first import everything, e.g.:
 > from get_SEDs import *
-> test_sdss_interp( 314.136483, -6.081352 )
-*** shows modeled SED (without including SDSS mags) compared to true ***
 
-To view the SED of any source, with model compared to observations:
+To produce a catalog of all objects possible in a field, run:
+> catalog( (314.136483, -6.081352), 900., savefile='catalog.txt' )
+*** catalog of objects in a 1/4 degree (900") field centered at 314.136483, -6.081352 ***
+*** can run anywhere in the sky, in or out of SDSS footprint ***
+
+To view the SED of any single source, with model compared to observations:
 > show_SED( 314.136483, -6.081352 )
+*** other examples:
+    # USNOB1+2MASS
+    75.005564, 49.999882
+	75.032986, 49.988026
+	# SDSS+2MASS
+	199.899058, 49.766365
+	199.712023, 49.902397
+*** or any coordinate pair found by catalog()
 
-to produce a catalog of all objects possible in a field, run:
-> catalog( (314.136483, -6.081352), 1800., savefile='catalog.txt' )
-*** catalog of objects in a 1/2 degree (1800") field centered at 314.136483, -6.081352 ***
+To analyze the errors accrued for determining z-band photometry
+by fitting a model to USNOB1+2MASS or SDSS+2MASS (except for z),
+run:
+> test_z_errors( 220., 50., size=900. )
+*** this analyzes errors for objects in a 900" box around 220., 50.
+*** can run on any field in SDSS footprint
+	
 
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 to do:
 
-Build system to compare this output catalog with one produced
- by sextractor, and report zeropoint difference for relevant band.
+Compare this output catalog with one produced by sextractor,
+ and report instrumental zeropoint for relevant band.
 Compare results with results from standard-star observations.
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 

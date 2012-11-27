@@ -336,15 +336,16 @@ def produce_catalog( field_center, field_width, redden=True, return_model=False 
 
     # before matching, prune the SDSS catalog down to only
     #  the bright sources (saves time)
-    mask = []
-    for obj in sdss:
-        if np.mean( obj[2::2] ) > 20:
-            # if the average SDSS magnitude is greater than 20, ignore this object
-            mask.append(0)
-        else:
-            mask.append(1)
-    mask = np.array(mask).astype(bool)
-    sdss = sdss[mask]
+    if sdss != None:
+        mask = []
+        for obj in sdss:
+            if np.mean( obj[2::2] ) > 20:
+                # if the average SDSS magnitude is greater than 20, ignore this object
+                mask.append(0)
+            else:
+                mask.append(1)
+        mask = np.array(mask).astype(bool)
+        sdss = sdss[mask]
 
     object_mags = []
     modes = []
@@ -585,8 +586,9 @@ def catalog( field_center, field_width, redden=True, savefile=None, max_size=180
 
 
 ############################################
-# COMPLETE TEST FUNCTIONS
+# TEST FUNCTIONS
 ############################################
+
 
 def test_z_errors( ra, dec, redden=True, size=900. ):
     '''
@@ -654,12 +656,19 @@ def test_z_errors( ra, dec, redden=True, size=900. ):
             modes.append( 0 )
             z_mags.append( z )
 
-
     # now fit a model to each object, and construct the final SED,
     #  without including the z-band.  Determine errors between
-    #  predicted z-band and actual.
+    #  predicted z-band and actual. Build an array of sample SEDs of
+    #  the first 9 sources for each type of fit.
     # Modes are defined as:
-    #  0 -> SDSS+2MASS; 1 -> USNOB+2MASS; 2 -> SDSS ONLY
+    #  0 -> SDSS+2MASS; 1 -> USNOB+2MASS
+    pltsize = 3 # adjust this parameter to show more/fewer SEDs in figures 1,2
+    f_0, axs_0 = plt.subplots( pltsize, pltsize, sharex=True, figsize=(15,10))
+    f_1, axs_1 = plt.subplots( pltsize, pltsize, sharex=True, figsize=(15,10))
+    axs_0 = axs_0.flatten()
+    axs_1 = axs_1.flatten()
+    i_ax0, i_ax1 = 0,0
+    
     errors_0, errors_1 = [],[]
     for i, obs in enumerate(object_mags):
         mode = modes[i]
@@ -681,6 +690,7 @@ def test_z_errors( ra, dec, redden=True, size=900. ):
             obs[::2] += reddening[mask]
             model += reddening
 
+        # compare calculated z-mag to observed
         true_z = z_mags[i]
         guess_z = model[4]
         error = true_z - guess_z
@@ -688,8 +698,33 @@ def test_z_errors( ra, dec, redden=True, size=900. ):
             errors_0.append(error)
         elif mode == 1:
             errors_1.append(error)
-        
+            
+        # plot up the SEDs themselves
+        ax = None
+        if mode == 0 and (i_ax0 < len(axs_0)):
+            i_ax = i_ax0
+            ax = axs_0[i_ax]
+            if i_ax == 1: ax.set_title('SEDs as fit by SDSS+2MASS (excluding z)')
+            i_ax0 +=1
+        elif mode == 1 and (i_ax1 < len(axs_1)):
+            i_ax = i_ax1
+            ax = axs_1[i_ax]
+            if i_ax == 1: ax.set_title('SEDs as fit by USNOB1+2MASS')
+            i_ax1 +=1
+        if ax != None:
+            ax.scatter( MODELS[0][1:][mask], obs[::2], c='k', marker='D', s=20, label='observations' )
+            ax.scatter( MODELS[0][1:], model, c='b', marker='o', s=50, alpha=.5, label='model' )
+            ax.scatter( MODELS[0][5], true_z, c='r', marker='D', s=20, label='SDSS-z' )
+            ax.invert_yaxis()
+            if i_ax%pltsize == 0:
+                ax.set_ylabel('Mag')
+            if len(axs_0)-i_ax <= pltsize:
+                ax.set_xlabel('Wavelength (A)')
+            if i_ax == pltsize-1:
+                ax.legend(loc=4)
+    
     # now plot a histogram for each type
+    plt.figure(3)
     alph = .5
     bns = map( lambda x: round(x,2), np.linspace(-2, 2, 50) )
     plt.hist( errors_0, bins=bns, alpha=alph, normed=True, color='g', label='SDSS+2MASS' )
@@ -699,7 +734,8 @@ def test_z_errors( ra, dec, redden=True, size=900. ):
     plt.xlabel('Error in z-band (mag)')
     plt.title('SDSS+2MASS: {} --- USNOB1+2MASS: {}'.format(len(errors_0), len(errors_1)) )
     plt.show()
-
+    
+    return errors_0, errors_1
         
 
 # example: ra, dec = (314.136483, -6.081352)
@@ -808,11 +844,17 @@ def show_SED( ra, dec, redden=True):
     oc, fs, modes = produce_catalog( (ra, dec), 1., redden=redden, return_model=True )
     
     # plot up the object
-    plt.scatter( MODELS[0][1:], fs[0], c='b', marker='D', label='model' )
-    plt.scatter( MODELS[0][mask], obs, c='r', marker='x', label='observations')
-    plt.legend(loc='best')
+    plt.scatter( MODELS[0][1:], fs[0], c='b', marker='o', s=50, alpha=.5, label='model' )
+    plt.scatter( MODELS[0][mask], obs, c='r', marker='D', s=20, label='observations')
+    plt.gca().invert_yaxis()
+    plt.legend(loc=4)
     plt.xlabel('Wavelength (A)')
     plt.ylabel('Mag')
-    plt.title('SED determined with mode {}'.format(modes[0]) )
+    if modes[0] == 0:
+        mmm = 'SDSS+2MASS'
+    else:
+        mmm = 'USNOB1+2MASS'
+    plt.title('SED determined with mode {}'.format(mmm) )
     plt.show()
     
+

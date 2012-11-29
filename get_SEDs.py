@@ -17,15 +17,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from subprocess import Popen, PIPE
 from scipy.optimize import minimize
-from sys import exit
 import pyfits, ephem
 from threading import Thread
 
 try:
     MODELS = np.load( open('all_models.npy','r') )
 except:
-    print 'cannot find models file'
-    exit()
+    raise IOError('cannot find models file')
 
 # open the dust extinction maps
 try:
@@ -41,16 +39,14 @@ try:
     MAP_DICT['N'] = [map_n, nsgp_n, scale_n]
     MAP_DICT['S'] = [map_s, nsgp_s, scale_s]
 except:
-    print 'cannot find/open dust maps'
-    exit()
-# Include the E(B-V)-to-mag mapping for all filters,
-#  from http://www.astro.princeton.edu/~schlegel/dust/data/filter.txt
-#  except for y-band, which is from Tonry et al. 2012
-#  NOTE: using values for UKIRT JHK filters instead of 2MASS - close enough!
-MAP_DICT['Filters'] = {'u':5.155, 'g':3.793, 'r':2.751, 'i':2.086,
-                       'z':1.479, 'y':1.251, 'B':4.315, 'R':2.673,
-                       'J':0.902, 'H':0.576, 'K':0.367}
+    raise IOError('cannot find/open dust maps')
 
+# Include the E(B-V)-to-mag mapping for all filters,
+#  from Schlafly & Finkbeiner 2011
+#  Using UKIRT JHK for 2MASS
+MAP_DICT['Filters'] = {'u':4.239, 'g':3.303, 'r':2.285, 'i':1.698,
+                       'z':1.263, 'y':1.058, 'B':4.315, 'R':2.673,
+                       'J':0.709, 'H':0.449, 'K':0.302}
 
 ALL_FILTERS = ['u','g','r','i','z','y','B','R','J','H','K']
 
@@ -295,7 +291,7 @@ def query_all( ra, dec, boxsize=10. ):
     return results
 
 
-def identify_matches( queried_stars, found_stars, match_radius=.5 ):
+def identify_matches( queried_stars, found_stars, match_radius=1. ):
     '''
     Match queried stars to found stars.
     
@@ -307,25 +303,30 @@ def identify_matches( queried_stars, found_stars, match_radius=.5 ):
     match_radius: the maximum offset between queried and found star to 
       call a match, in arcseconds
     '''
-    match_radius = 2.778e-4*match_radius # convert arcseconds into degrees
+    match_radius_squared = (2.778e-4*match_radius) # convert arcseconds into degrees
     matches = []
+    #matched = np.zeros(len(found_stars)).astype(bool) # mask to track which stars have already been matched
     for star in queried_stars:
         # calculate the distance to each located star
-        diffs = [((star[0]-other[0])**2 + (star[1]-other[1])**2)**.5 for other in found_stars]
-        if min(diffs) < match_radius:
-            matches.append(np.argmin(diffs))
+        diffs_squared = [((star[0]-other[0])**2 + (star[1]-other[1])**2)**.5 for other in found_stars] #[~matched]]
+        if min(diffs_squared) < match_radius:
+            i_best = np.argmin(diffs_squared)
+            matches.append(i_best)
+            #matched[i_best] = True
         else:
             matches.append(None) 
     return matches
 
 
-def produce_catalog( field_center, field_width, redden=True, return_model=False ):
+def produce_catalog( field_center, field_width, err_cut=1., redden=True, return_model=False ):
     '''
     Create a catalog of all objects found in field.
     Requires records in 2MASS + (SDSS and/or USNOB1).
 
     field_center: (ra, dec) in decimal degrees
     field_width: full width of field box, in arcseconds
+    err_cut: require models to have fitting parameters lower than this value,
+              return None instead of SED in final_seds if the model is a poor fit.
     redden: T/F, include galactic reddening in model fit?
     return_model: If True, returns all modeled magnitudes.
                   If False, returns modeled magnitudes supplemented
@@ -334,18 +335,11 @@ def produce_catalog( field_center, field_width, redden=True, return_model=False 
     ra, dec = field_center #in decimal degrees
     mass, sdss, usnob = query_all(ra, dec, boxsize=field_width)
 
-    # before matching, prune the SDSS catalog down to only
-    #  the bright sources (saves time)
     if sdss != None:
-        mask = []
-        for obj in sdss:
-            if np.mean( obj[2::2] ) > 20:
-                # if the average SDSS magnitude is greater than 20, ignore this object
-                mask.append(0)
-            else:
-                mask.append(1)
-        mask = np.array(mask).astype(bool)
-        sdss = sdss[mask]
+        # before matching, prune the SDSS catalog down to only
+        #  the bright sources (saves time)
+        # Keep only sources with r_mag < 20.
+        sdss = np.array( [obj for obj in sdss if obj[6] < 20.] )
 
     object_mags = []
     modes = []
@@ -385,11 +379,11 @@ def produce_catalog( field_center, field_width, redden=True, return_model=False 
     for i, obs in enumerate(object_mags):
         mode = modes[i]
         # the masks show, in order, which bands are included
-        #  order: u,g,r,i,z,y,B,R,J,H,K
+        #  order: u,g,r,i,z, y, B,R, J,H,K
         if mode == 0: # sdss+2mass
-            mask = [1,1,1,1,1,0,0,0,1,1,1]
+            mask = [1,1,1,1,1, 0, 0,0, 1,1,1]
         elif mode == 1: # usnob+2mass
-            mask = [0,0,0,0,0,0,1,1,1,1,1]
+            mask = [0,0,0,0,0, 0, 1,1, 1,1,1]
         mask = np.array(mask).astype(bool)
 
         if redden:
@@ -398,22 +392,25 @@ def produce_catalog( field_center, field_width, redden=True, return_model=False 
             #  to the models
             obs[::2] -= reddening[mask]
 
-        model, T = choose_model( obs, mask )
+        model, T, err = choose_model( obs, mask )
 
-        if redden:
-            # re-redden the model and observations
-            obs[::2] += reddening[mask]
-            model += reddening
-
-        if return_model:
-            sed = model
+        if err > err_cut: #apply quality-of-fit cut
+            final_seds.append(None)
         else:
-            sed = np.empty(11)
-            # keep the real observations
-            sed[mask] = obs[::2]
-            # fill in rest with modeled magnitudes
-            sed[~mask] = model[~mask]
-        final_seds.append(sed)
+            if redden:
+                # re-redden the model and observations
+                obs[::2] += reddening[mask]
+                model += reddening
+
+            if return_model:
+                sed = model
+            else:
+                sed = np.empty(11)
+                # keep the real observations
+                sed[mask] = obs[::2]
+                # fill in rest with modeled magnitudes
+                sed[~mask] = model[~mask]
+            final_seds.append(sed)
 
     return object_coords, final_seds, modes
 
@@ -505,6 +502,8 @@ def choose_model( obs, mask, models=MODELS ):
     Find and return the best model for obs.
     Do this by fitting to all magnitudes weighted by error.
     
+    Returns: model, temperature, quality_parameter
+    
     obs: an array of the observed magnitudes and errors, in
            order as defined by the mode key (see below)
     mask: defines what colors to use in the fit, i.e. what observations exist
@@ -529,15 +528,53 @@ def choose_model( obs, mask, models=MODELS ):
     sum_sqrs, Cs = [], []
     for model in models[1:]:
         res = minimize( error_C, 0., args=(model[mask], zerod_mags) )
-        C = res.x[0]
-        sum_sqrs.append(np.sum( weights*(zerod_mags - model[mask]+C)**2 ))
-    best_model = models[1:][ np.argmin(sum_sqrs) ]
-    # now determine the C that best fits the non-zerod observations
-    guess = obs[-2] # the J-Mag, since all models are centered at J=0
-    res = minimize( error_C, guess, args=(best_model[mask], mags))
+        Cs.append(res.x[0])
+        sum_sqrs.append(res.values()[4])
+    i_best = np.argmin(sum_sqrs)
+    best_model = models[1:][ i_best ] 
+    # now add back in the zeropoint to get a model for the non-zerod observations
+    C = Cs[i_best] + min(mags)
+    # return all magnitudes for best model, the temperature, and a quality metric for the best fit
+    return (best_model[1:] + C, best_model[0], sum_sqrs[i_best])
+
+
+def choose_model2( obs, mask, models=MODELS ):
+    '''
+    Find and return the best model for obs.
+    Do this by fitting to all colors.
+
+    Returns: model, temperature, quality_parameter
+
+    obs: an array of the observed magnitudes and errors, in
+           order as defined by the mode key (see below)
+    mask: defines what colors to use in the fit, i.e. what observations exist
+           in order: [u,g,r,i,z,y,B,R,J,H,K]
+    models: an array of modeled SEDs, where 0th entry is temperature
+             of the model, and the rest are magnitudes
+
+    '''
+    # mask is an array used to choose which modeled magnitudes
+    #  correspond to the included observations.
+    #  Note: I append a leading zero to ignore the temperature of the model
+    #   (saved in position 0 for all models)
+    mask = np.hstack( (np.array([False]), np.array(mask).astype(bool)) )
+
+    mags = obs[::2]
+    colors = mags[:-1] - mags[1:]
+
+    # Go through all models and choose the one with the most similar colors
+    #  Keep track of the sum_squared error
+    sum_sqrs = []
+    for model in models[1:]:
+        m_colors = model[mask][:-1] - model[mask][1:]
+        sum_sqrs.append( np.sum( (colors-m_colors)**2 ) )
+    i_best = np.argmin(sum_sqrs)
+    best_model = models[1:][ i_best ] 
+    # now determine the C value
+    res = minimize( error_C, min(mags), args=(best_model[mask], mags) )
     C = res.x[0]
-    # return all magnitudes for best model and the temperature
-    return (best_model[1:] + C, best_model[0])
+    # return all magnitudes for best model, the temperature, and a quality metric for the best fit
+    return (best_model[1:] + C, best_model[0], sum_sqrs[i_best])
 
 
 ############################################
@@ -580,7 +617,10 @@ def catalog( field_center, field_width, redden=True, savefile=None, max_size=180
                   '# modes: 0 -> SDSS+2MASS; 1 -> USNOB1+2MASS\n'
                   '# RA\tDEC\t' + '\t'.join(ALL_FILTERS) + '\tmode\n')
         for i,row in enumerate(final_seds):
-            fff.write( '\t'.join( map(str, object_coords[i]) ) + '\t' + '\t'.join( map(format, row) ) + '\t{}\n'.format(modes[i]) )
+            if row == None:
+                continue # the quality-of-fit cut has been exceeded in produce_catalog
+            else:
+                fff.write( '\t'.join( map(str, object_coords[i]) ) + '\t' + '\t'.join( map(format, row) ) + '\t{}\n'.format(modes[i]) )
         fff.close()
     else:
         return np.array(object_coords), np.array(final_seds)
@@ -591,11 +631,11 @@ def catalog( field_center, field_width, redden=True, savefile=None, max_size=180
 ############################################
 
 
-def test_SDSS_errors( ra, dec, band_name='z', redden=True, size=900. ):
+def test_SDSS_errors( ra, dec, band_name='z', redden=True, size=900., plot=True ):
     '''
     Test the error accrued for all sources in a field when estimating 
-     SDSS z-band photometry from all modes.  y-band photometry is 
-     expected to be similar or better than this.
+     SDSS _-band photometry from all modes.  Errors in y-band photometry
+     are expected to be similar to z-band errors.
     
     Run this on any field within the SDSS footprint.
 
@@ -603,9 +643,10 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=True, size=900. ):
     band: SDSS passband to derive errors for
     redden: if True, account for galactic reddening when modeling photometry
     size: size of field to query around ra, dec (arseconds)
+    plot: show/build plots?
     '''
     if band_name == 'u':
-        sdss_mask = [0,0,1,1,1,1,1,1,1,1]
+        sdss_mask = [0,0,1,1,1,1,1,1,1,1]  #these mask both mags and errors
         i_band = 0
     elif band_name == 'g':
         sdss_mask = [1,1,0,0,1,1,1,1,1,1]
@@ -620,15 +661,16 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=True, size=900. ):
         sdss_mask = [1,1,1,1,1,1,1,1,0,0]
         i_band = 4
     else:
-        print 'Incorrect band keyword!'
-        exit()
+        raise Exception('Incorrect band keyword!')
     sdss_mask = np.array(sdss_mask).astype(bool)
 
     mass, sdss, usnob = query_all(ra, dec, boxsize=size)
 
-    ##### the code between 5 hashes is modified from produce_catalog, above #####
     object_mags = []
     band_mags = []
+    sdss_mags = []
+    #jmk0,jmk1,gmr0,gmr1 = [],[],[],[]  # used to plot model predictions as a function of colors
+    errs0, errs1 = [],[]  # used to plot model predictions as a function of model fit
     modes = []
     object_coords = []
 
@@ -636,21 +678,13 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=True, size=900. ):
     if sdss != None:
         # before matching, prune the SDSS catalog down to only
         #  the bright sources (saves time)
-        mask = []
-        for obj in sdss:
-            if np.mean( obj[2::2] ) > 20:
-                # if the average SDSS magnitude is greater than 20, ignore this object
-                mask.append(0)
-            else:
-                mask.append(1)
-        mask = np.array(mask).astype(bool)
-        sdss = sdss[mask]
+        # Keep only sources with r_mag < 20.
+        sdss = np.array( [obj for obj in sdss if obj[6] < 20.] )
         
         mass_matches = identify_matches( sdss[:,:2], mass[:,:2] )
         usnob_matches = identify_matches( sdss[:,:2], usnob[:,:2] )
     else:
-        print 'Must run this for coordinates in SDSS footprint!'
-        exit()
+        raise Exception('Must run this for coordinates in SDSS footprint!')
 
     # Go through SDSS objects and assemble a catalog
     #  of all objects present in multiple catalogs
@@ -662,21 +696,38 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=True, size=900. ):
             obs = np.hstack( (obj[2:][sdss_mask], mass[i_mass][2:]) )
             band = obj[2:][~sdss_mask][0] # keep track of the true band mag
             object_mags.append( obs )
+            sdss_mags.append( obj[2:][sdss_mask])
+            object_coords.append( obj[:2] )
             modes.append( 0 )
             band_mags.append( band )
+            
+            #gmr0.append( obj[2] - obj[4] )
+            #jmk0.append( mass[i_mass][2] - mass[i_mass][-2] )
+            
             # also fit to USNOB+2MASS
             obs = np.hstack( (usnob[i_usnob][2:], mass[i_mass][2:]) )
             object_mags.append( obs )
+            sdss_mags.append( obj[2:][sdss_mask])
+            object_coords.append( obj[:2] )
             modes.append( 1 )
             band_mags.append( band )
+            
+            #gmr1.append( obj[2] - obj[4] )
+            #jmk1.append( mass[i_mass][2] - mass[i_mass][-2] )
+            
         elif mass_matches[i] != None and usnob_matches[i] == None:
             i_mass = mass_matches[i]
             # fit to SDSS+2MASS
             obs = np.hstack( (obj[2:][sdss_mask], mass[i_mass][2:]) )
             band = obj[2:][~sdss_mask][0]
             object_mags.append( obs )
+            sdss_mags.append( obj[2:][sdss_mask])
+            object_coords.append( obj[:2] )
             modes.append( 0 )
             band_mags.append( band )
+            
+            #gmr0.append( obj[4] - obj[6] )
+            #jmk0.append( mass[i_mass][2] - mass[i_mass][-2] )
 
     # now fit a model to each object, and construct the final SED,
     #  without including the z-band.  Determine errors between
@@ -684,12 +735,13 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=True, size=900. ):
     #  the first 9 sources for each type of fit.
     # Modes are defined as:
     #  0 -> SDSS+2MASS; 1 -> USNOB+2MASS
-    pltsize = 3 # adjust this parameter to show more/fewer SEDs in figures 1,2
-    f_0, axs_0 = plt.subplots( pltsize, pltsize, sharex=True, figsize=(15,10))
-    f_1, axs_1 = plt.subplots( pltsize, pltsize, sharex=True, figsize=(15,10))
-    axs_0 = axs_0.flatten()
-    axs_1 = axs_1.flatten()
-    i_ax0, i_ax1 = 0,0
+    if plot:
+        pltsize = 3 # adjust this parameter to show more/fewer SEDs in figures 1,2
+        f_0, axs_0 = plt.subplots( pltsize, pltsize, sharex=True, figsize=(15,10))
+        f_1, axs_1 = plt.subplots( pltsize, pltsize, sharex=True, figsize=(15,10))
+        axs_0 = axs_0.flatten()
+        axs_1 = axs_1.flatten()
+        i_ax0, i_ax1 = 0,0
     
     errors_0, errors_1 = [],[]
     for i, obs in enumerate(object_mags):
@@ -706,7 +758,9 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=True, size=900. ):
             #  to the models
             obs[::2] -= reddening[mask]
 
-        model, T = choose_model( obs, mask )
+        model, T, err = choose_model2( obs, mask )
+        if err > 1.: continue # impose a quality-of-fit cut
+        
         if redden:
             # re-redden the model and observations
             obs[::2] += reddening[mask]
@@ -718,44 +772,88 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=True, size=900. ):
         error = true_band - guess_band
         if mode == 0:
             errors_0.append(error)
+            errs0.append(err)
         elif mode == 1:
             errors_1.append(error)
+            errs1.append(err)
             
-        # plot up the SEDs themselves
-        ax = None
-        if mode == 0 and (i_ax0 < len(axs_0)):
-            i_ax = i_ax0
-            ax = axs_0[i_ax]
-            if i_ax == 1: ax.set_title('SEDs as fit by SDSS+2MASS (excluding {})'.format(band_name))
-            i_ax0 +=1
-        elif mode == 1 and (i_ax1 < len(axs_1)):
-            i_ax = i_ax1
-            ax = axs_1[i_ax]
-            if i_ax == 1: ax.set_title('SEDs as fit by USNOB1+2MASS')
-            i_ax1 +=1
-        if ax != None:
-            ax.scatter( MODELS[0][1:][mask], obs[::2], c='k', marker='D', s=20, label='observations' )
-            ax.scatter( MODELS[0][1:], model, c='b', marker='o', s=50, alpha=.5, label='model' )
-            ax.scatter( MODELS[0][1:][i_band], true_band, c='r', marker='D', s=20, label='SDSS-{}'.format(band_name) )
-            ax.invert_yaxis()
-            if i_ax%pltsize == 0:
-                ax.set_ylabel('Mag')
-            if len(axs_0)-i_ax <= pltsize:
-                ax.set_xlabel('Wavelength (A)')
-            if i_ax == pltsize-1:
-                ax.legend(loc=4)
+        if plot:
+            # if this is a particularly egregrious one, plot it up
+            if abs(error) > 1.:
+                plt.figure()
+                ax = plt.subplot(111)
+                ax.scatter( MODELS[0][1:][mask], obs[::2], c='k', marker='D', s=20, label='observations' )
+                ax.scatter( MODELS[0][1:], model, c='b', marker='o', s=50, alpha=.5, label='model' )
+                ax.scatter( MODELS[0][1:][i_band], true_band, c='r', marker='D', s=20, label='SDSS-{}'.format(band_name) )
+                ax.scatter( MODELS[0][1:6][sdss_mask[::2]], sdss_mags[i][::2], c='r', marker='x', s=20 )
+                ax.invert_yaxis()
+                ax.set_title( 'Terrible fit at {}'.format(object_coords[i]) )
+            
+            # plot up the SEDs themselves
+            ax = None
+            if mode == 0 and (i_ax0 < len(axs_0)):
+                i_ax = i_ax0
+                ax = axs_0[i_ax]
+                if i_ax == 1: ax.set_title('SEDs as fit by SDSS+2MASS (excluding {})'.format(band_name))
+                i_ax0 +=1
+            elif mode == 1 and (i_ax1 < len(axs_1)):
+                i_ax = i_ax1
+                ax = axs_1[i_ax]
+                if i_ax == 1: ax.set_title('SEDs as fit by USNOB1+2MASS')
+                i_ax1 +=1
+            if ax != None:
+                ax.scatter( MODELS[0][1:][mask], obs[::2], c='k', marker='D', s=20, label='observations' )
+                ax.scatter( MODELS[0][1:], model, c='b', marker='o', s=50, alpha=.5, label='model' )
+                ax.scatter( MODELS[0][1:][i_band], true_band, c='r', marker='D', s=20, label='SDSS-{}'.format(band_name) )
+                ax.invert_yaxis()
+                if i_ax%pltsize == 0:
+                    ax.set_ylabel('Mag')
+                if len(axs_0)-i_ax <= pltsize:
+                    ax.set_xlabel('Wavelength (A)')
+                if i_ax == pltsize-1:
+                    ax.legend(loc=4)
     
-    # now plot a histogram for each type
-    plt.figure(3)
-    alph = .5
-    bns = map( lambda x: round(x,2), np.linspace(-2, 2, 50) )
-    plt.hist( errors_0, bins=bns, alpha=alph, normed=True, color='g', label='SDSS+2MASS' )
-    plt.hist( errors_1, bins=bns, alpha=alph, normed=True, color='b', label='USNOB1+2MASS' )
-    plt.legend(loc='best')
-    plt.ylabel('Normalized count')
-    plt.xlabel('Error in {}-band (mag)'.format(band_name))
-    plt.title('SDSS+2MASS: {} --- USNOB1+2MASS: {}'.format(len(errors_0), len(errors_1)) )
-    plt.show()
+    if plot:
+        # now plot a histogram for each type
+        plt.figure()
+        alph = .5
+        bns = map( lambda x: round(x,2), np.linspace(-2, 2, 50) )
+        plt.hist( errors_0, bins=bns, alpha=alph, normed=True, color='g', label='SDSS+2MASS' )
+        plt.hist( errors_1, bins=bns, alpha=alph, normed=True, color='b', label='USNOB1+2MASS' )
+        plt.legend(loc='best')
+        plt.ylabel('Normalized count')
+        plt.xlabel('Error in {}-band (mag)'.format(band_name))
+        plt.title('SDSS+2MASS: {} --- USNOB1+2MASS: {}'.format(len(errors_0), len(errors_1)) )
+
+        '''  # these were used to determine whether I should use a color cut - i.e. do color=0 stars fit better?  answer: No
+        plt.figure(4)
+        plt.scatter( errors_0, jmk0, color='r', alpha=.8, label='J-K' )
+        plt.scatter( errors_0, gmr0, color='b', alpha=.8, label='g-r' )
+        plt.legend(loc='best')
+        plt.ylabel('Color')
+        plt.xlabel('Error in {}-band (mag)'.format(band_name))
+        plt.title('SDSS+2MASS: {}'.format(len(errors_0)) )
+
+        plt.figure(5)
+        plt.scatter( errors_1, jmk1, color='r', alpha=.8, label='J-K' )
+        plt.scatter( errors_1, gmr1, color='b', alpha=.8, label='g-r' )
+        plt.legend(loc='best')
+        plt.ylabel('Color')
+        plt.xlabel('Error in {}-band (mag)'.format(band_name))
+        plt.title('USNOB1+2MASS: {}'.format(len(errors_1)) )
+        plt.show()
+        '''
+    
+        # these are used to determine whether I should use a quality-of-fit cut.
+        plt.figure()
+        plt.scatter( errors_0, errs0, color='r', alpha=.8, label='SDSS+2MASS' )
+        plt.scatter( errors_1, errs1, color='b', alpha=.8, label='USNOB+2MASS' )
+        plt.legend(loc='best')
+        plt.ylabel('quality parameter')
+        plt.xlabel('Error in {}-band (mag)'.format(band_name))
+        plt.title('SDSS+2MASS: {} --- USNOB+2MASS'.format(len(errors_0), len(errors_1)) )
+        plt.show()
+
     
     return errors_0, errors_1
         
@@ -780,7 +878,7 @@ def construct_SED( ra, dec, redden=True ):
         obs[::2] -= get_reddening( ra, dec, filts )
     
     # fit a model to the observations
-    model, T = choose_model( obs, [1,1,1,1,1,0,0,0,1,1,1] )
+    model, T, err = choose_model( obs, [1,1,1,1,1,0,0,0,1,1,1] )
 
     if redden:
         # redden the model and re-redden the obs
@@ -794,7 +892,7 @@ def construct_SED( ra, dec, redden=True ):
     plt.legend(loc='best')
     plt.xlabel('Wavelength (A)')
     plt.ylabel('Mag')
-    plt.title( 'Complete SED, using model: {}K'.format(round(T)) )
+    plt.title( 'Complete SED, using model: {}K --- error param: {}'.format(round(T), round(err,2)) )
     plt.show()
 
 
@@ -817,7 +915,7 @@ def test_sdss_interp( ra, dec, redden=True ):
         obs[::2] -= get_reddening( ra, dec, filts )
     
     # fit a model to the observations
-    model, T = choose_model( obs, [0,0,0,0,0,0,1,1,1,1,1] )
+    model, T, err = choose_model( obs, [0,0,0,0,0,0,1,1,1,1,1] )
     
     if redden:
         # redden the model and re-redden the observations
@@ -880,3 +978,6 @@ def show_SED( ra, dec, redden=True):
     plt.show()
     
 
+if __name__ == '__main__':
+    pass
+    #e0,e1 = test_SDSS_errors( 200., 50., 'z', size=1800. )

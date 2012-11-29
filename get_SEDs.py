@@ -291,7 +291,7 @@ def query_all( ra, dec, boxsize=10. ):
     return results
 
 
-def identify_matches( queried_stars, found_stars, match_radius=1. ):
+def identify_matches( queried_stars, found_stars, match_radius=.5 ):
     '''
     Match queried stars to found stars.
     
@@ -302,14 +302,17 @@ def identify_matches( queried_stars, found_stars, match_radius=1. ):
     found_stars: an array of coordinates of located stars
     match_radius: the maximum offset between queried and found star to 
       call a match, in arcseconds
+    
+    max z-J: ~1.68
+    max R-J: ~2.12
     '''
-    match_radius_squared = (2.778e-4*match_radius) # convert arcseconds into degrees
+    match_radius_squared = (2.778e-4*match_radius)**2 # convert arcseconds into degrees
     matches = []
     #matched = np.zeros(len(found_stars)).astype(bool) # mask to track which stars have already been matched
     for star in queried_stars:
         # calculate the distance to each located star
-        diffs_squared = [((star[0]-other[0])**2 + (star[1]-other[1])**2)**.5 for other in found_stars] #[~matched]]
-        if min(diffs_squared) < match_radius:
+        diffs_squared = [((star[0]-other[0])**2 + (star[1]-other[1])**2) for other in found_stars] #[~matched]]
+        if min(diffs_squared) < match_radius_squared:
             i_best = np.argmin(diffs_squared)
             matches.append(i_best)
             #matched[i_best] = True
@@ -631,7 +634,7 @@ def catalog( field_center, field_width, redden=True, savefile=None, max_size=180
 ############################################
 
 
-def test_SDSS_errors( ra, dec, band_name='z', redden=True, size=900., plot=True ):
+def test_SDSS_errors( ra, dec, band_name='z', mod_choice=1, redden=True, size=900., plot=True ):
     '''
     Test the error accrued for all sources in a field when estimating 
      SDSS _-band photometry from all modes.  Errors in y-band photometry
@@ -681,53 +684,57 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=True, size=900., plot=True 
         # Keep only sources with r_mag < 20.
         sdss = np.array( [obj for obj in sdss if obj[6] < 20.] )
         
-        mass_matches = identify_matches( sdss[:,:2], mass[:,:2] )
-        usnob_matches = identify_matches( sdss[:,:2], usnob[:,:2] )
+        sdss_matches = identify_matches( mass[:,:2], sdss[:,:2] )
+        usnob_matches = identify_matches( mass[:,:2], usnob[:,:2] )
     else:
         raise Exception('Must run this for coordinates in SDSS footprint!')
 
-    # Go through SDSS objects and assemble a catalog
+    # Go through 2MASS objects and assemble a catalog
     #  of all objects present in multiple catalogs
-    for i,obj in enumerate(sdss):
-        if mass_matches[i] != None and usnob_matches[i] !=None:
-            i_mass = mass_matches[i]
+    for i,obj in enumerate(mass):
+        if sdss_matches[i] != None and usnob_matches[i] !=None:
+            i_sdss = sdss_matches[i]
             i_usnob = usnob_matches[i]
+            
             # fit to SDSS+2MASS
-            obs = np.hstack( (obj[2:][sdss_mask], mass[i_mass][2:]) )
-            band = obj[2:][~sdss_mask][0] # keep track of the true band mag
+            obs = np.hstack( (sdss[i_sdss][2:][sdss_mask], obj[2:]) )
+            band = sdss[i_sdss][2:][~sdss_mask][0] # keep track of the true band mag
             object_mags.append( obs )
-            sdss_mags.append( obj[2:][sdss_mask])
+            sdss_mags.append( sdss[i_sdss][2:][sdss_mask])
             object_coords.append( obj[:2] )
             modes.append( 0 )
             band_mags.append( band )
             
             #gmr0.append( obj[2] - obj[4] )
             #jmk0.append( mass[i_mass][2] - mass[i_mass][-2] )
-            
+
             # also fit to USNOB+2MASS
-            obs = np.hstack( (usnob[i_usnob][2:], mass[i_mass][2:]) )
+            obs = np.hstack( (usnob[i_usnob][2:], obj[2:]) )
             object_mags.append( obs )
-            sdss_mags.append( obj[2:][sdss_mask])
+            sdss_mags.append( sdss[i_sdss][2:][sdss_mask])
             object_coords.append( obj[:2] )
             modes.append( 1 )
+            band = sdss[i_sdss][2:][~sdss_mask][0] # keep track of the true band mag
             band_mags.append( band )
             
             #gmr1.append( obj[2] - obj[4] )
             #jmk1.append( mass[i_mass][2] - mass[i_mass][-2] )
             
-        elif mass_matches[i] != None and usnob_matches[i] == None:
-            i_mass = mass_matches[i]
+        elif sdss_matches[i] != None and usnob_matches[i] == None:
+
+            i_sdss = sdss_matches[i]
             # fit to SDSS+2MASS
-            obs = np.hstack( (obj[2:][sdss_mask], mass[i_mass][2:]) )
-            band = obj[2:][~sdss_mask][0]
+            obs = np.hstack( (sdss[i_sdss][2:][sdss_mask], obj[2:]) )
+            band = sdss[i_sdss][2:][~sdss_mask][0]
             object_mags.append( obs )
-            sdss_mags.append( obj[2:][sdss_mask])
+            sdss_mags.append( sdss[i_sdss][2:][sdss_mask])
             object_coords.append( obj[:2] )
             modes.append( 0 )
             band_mags.append( band )
             
             #gmr0.append( obj[4] - obj[6] )
             #jmk0.append( mass[i_mass][2] - mass[i_mass][-2] )
+
 
     # now fit a model to each object, and construct the final SED,
     #  without including the z-band.  Determine errors between
@@ -757,10 +764,12 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=True, size=900., plot=True 
             # de-redden the observations before comparing
             #  to the models
             obs[::2] -= reddening[mask]
-
-        model, T, err = choose_model2( obs, mask )
-        if err > 1.: continue # impose a quality-of-fit cut
-        
+        if mod_choice == 1:
+            model, T, err = choose_model( obs, mask )
+            if err > 2.: continue # impose a quality-of-fit cut
+        elif mod_choice == 2:
+            model, T, err = choose_model2( obs, mask )
+            
         if redden:
             # re-redden the model and observations
             obs[::2] += reddening[mask]
@@ -851,10 +860,9 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=True, size=900., plot=True 
         plt.legend(loc='best')
         plt.ylabel('quality parameter')
         plt.xlabel('Error in {}-band (mag)'.format(band_name))
-        plt.title('SDSS+2MASS: {} --- USNOB+2MASS'.format(len(errors_0), len(errors_1)) )
+        plt.title('SDSS+2MASS: {} --- USNOB+2MASS: {}'.format(len(errors_0), len(errors_1)) )
         plt.show()
 
-    
     return errors_0, errors_1
         
 

@@ -8,13 +8,14 @@ $ python
 > [test function of choice]
 
 '''
+from get_SEDs import *
 
 ############################################
 # TEST FUNCTIONS
 ############################################
 
 
-def test_SDSS_errors( ra, dec, band_name='z', mod_choice=1, redden=True, size=900., plot=True ):
+def test_SDSS_errors( ra, dec, band_name='z', mod_choice=1, redden=False, size=900., plot=True ):
     '''
     Test the error accrued for all sources in a field when estimating 
      SDSS _-band photometry from all modes.  Errors in y-band photometry
@@ -59,11 +60,6 @@ def test_SDSS_errors( ra, dec, band_name='z', mod_choice=1, redden=True, size=90
 
     # match sdss, usnob objects to 2mass objects
     if sdss != None:
-        # before matching, prune the SDSS catalog down to only
-        #  the bright sources (saves time)
-        # Keep only sources with r_mag < 20.
-        sdss = np.array( [obj for obj in sdss if obj[6] < 20.] )
-        
         sdss_matches = identify_matches( mass[:,:2], sdss[:,:2] )
         usnob_matches = identify_matches( mass[:,:2], usnob[:,:2] )
     else:

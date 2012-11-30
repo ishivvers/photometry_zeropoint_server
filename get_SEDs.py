@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 from subprocess import Popen, PIPE
 from scipy.optimize import minimize
 import pyfits, ephem
+from os.path import isfile
 from threading import Thread
 
 try:
@@ -54,10 +55,10 @@ ALL_FILTERS = ['u','g','r','i','z','y','B','R','J','H','K']
 # CATALOG INTERFACE FUNCTIONS
 ############################################
 
-def parse_sdss( s ):
+def _parse_sdss( s ):
     '''
     Parse findsdss8 output.
-
+    
     s: a string as returned by findsdss8 using the flag "-e0,"
     returns: a 2-d array, with each row containing the results for one object:
       [ra, dec, u, u_sigma, g, g_sigma, r, r_sigma, i, i_sigma, z, z_sigma]
@@ -87,14 +88,15 @@ def parse_sdss( s ):
     return np.array(out)
 
 
-def query_sdss( ra, dec, boxsize=10., container=None, cont_index=1 ):
+def query_sdss( ra, dec, boxsize=10., container=None, cont_index=1, trim_mag=21. ):
     '''
     Query sdss8 server for sources found in a box of width boxsize (arcsecs)
     around ra,dec.
     Returns an array (if objects found) or None (if not)
-
+    
     ra,dec: coordinates in decimal degrees
     boxsize: width of box in which to query
+    trim_mag: do not return sources with r > trim_mag
     '''
     # search for SDSS objects around coordinates with
     #  defined box size, return only basic parameters, and
@@ -104,22 +106,23 @@ def query_sdss( ra, dec, boxsize=10., container=None, cont_index=1 ):
     out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
     o,e = out.communicate()
     # parse the response
-    sdss_objects = parse_sdss(o)
+    sdss_objects = _parse_sdss(o)
     if len(sdss_objects) == 0:
         # no matches
         output = None
     else:
-        output = sdss_objects
+        sdss = np.array( [obj for obj in sdss_objects if obj[6] < trim_mag] )
+        output = sdss
     if container == None:
         return output
     else:
         container[ cont_index ] = output
 
 
-def parse_2mass( s ):
+def _parse_2mass( s ):
     '''
     parse find2mass output.
-
+    
     s: a string as returned by find2mass using the flag "-eb"
     returns: a 2-d array, with each row containing the results for one object:
       [ra, dec, J, J_sigma, H, H_sigma, K, K_sigma]
@@ -150,7 +153,7 @@ def parse_2mass( s ):
             #  they are probably anomalous anyways.
             pass
     '''
-            
+    
     return np.array(out)
 
 
@@ -159,7 +162,7 @@ def query_2mass( ra, dec, boxsize=10., container=None, cont_index=0 ):
     Query 2mass server for sources found in a box of width boxsize (arcsecs)
     around ra,dec.
     Returns an array (if objects found) or None (if not)
-
+    
     ra,dec: coordinates in decimal degrees
     boxsize: width of box in which to query
     '''
@@ -171,7 +174,7 @@ def query_2mass( ra, dec, boxsize=10., container=None, cont_index=0 ):
     out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
     o,e = out.communicate()
     # parse the response
-    mass_objects = parse_2mass(o)
+    mass_objects = _parse_2mass(o)
     if len(mass_objects) == 0:
         # no matches
         output = None
@@ -183,13 +186,13 @@ def query_2mass( ra, dec, boxsize=10., container=None, cont_index=0 ):
         container[ cont_index ] = output
 
 
-def parse_usnob1( s ):
+def _parse_usnob1( s ):
     '''
     Parse findusnob1 output.
     The photometric errors in USNOB1 are pretty terrible (~.3mag for each observation),
       but most sources have more than one observation, so I average all results
       and return the average magnitudes and the error of the mean.
-
+    
     s: a string as returned by usnob1 using the flag "-eb"
     returns: a 2-d array, with each row containing the results for one object:
       [ra, dec, avg_B, B_sigma, avg_R, R_sigma]
@@ -213,7 +216,7 @@ def parse_usnob1( s ):
                 char = '-'
             ra  = float(tmp[1].split(char)[0])
             dec = float(char + tmp[1].split(char)[1])
-
+            
             # magnitudes and errors
             #  in order: B, B_sigma, R, R_sigma
             Bs, Rs = [], []
@@ -231,13 +234,13 @@ def parse_usnob1( s ):
             # each measure has an error of about .3 mag
             B_err = 0.3/np.sqrt(len(Bs))
             R_err = 0.3/np.sqrt(len(Rs))
-        
+            
             out.append( [ra, dec, B, B_err, R, R_err] )
         except:
             # silently fail on sources that are not formatted properly,
             #  they are probably anomalous anyways.
             pass
-        
+    
     return np.array(out)
 
 
@@ -246,7 +249,7 @@ def query_usnob1( ra, dec, boxsize=10., container=None, cont_index=2 ):
     Query usnob1 server for sources found in a box of width boxsize (arcsecs)
     around ra,dec.
     Returns an array (if objects found) or None (if not)
-
+    
     ra,dec: coordinates in decimal degrees
     boxsize: width of box in which to query
     '''
@@ -257,7 +260,7 @@ def query_usnob1( ra, dec, boxsize=10., container=None, cont_index=2 ):
     request = 'findusnob1 -c {} {} -bs {} -eb -sr -m 10000'.format( ra, dec, boxsize )
     out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
     o,e = out.communicate()
-    usnob1_objects = parse_usnob1(o)
+    usnob1_objects = _parse_usnob1(o)
     if len(usnob1_objects) == 0:
         # no matches
         output = None
@@ -291,13 +294,13 @@ def query_all( ra, dec, boxsize=10. ):
     return results
 
 
-def identify_matches( queried_stars, found_stars, match_radius=.5 ):
+def identify_matches( queried_stars, found_stars, match_radius=1. ):
     '''
     Match queried stars to found stars.
     
     Returns list of indices in found_stars for corresponding
      star in queried_stars, or None if no match found.
-
+     
     queried_stars: an array of coordinates of stars to match
     found_stars: an array of coordinates of located stars
     match_radius: the maximum offset between queried and found star to 
@@ -318,11 +321,11 @@ def identify_matches( queried_stars, found_stars, match_radius=.5 ):
     return matches
 
 
-def produce_catalog( field_center, field_width, err_cut=1., redden=True, return_model=False ):
+def produce_catalog( field_center, field_width, err_cut=2., redden=True, return_model=False ):
     '''
     Create a catalog of all objects found in field.
     Requires records in 2MASS + (SDSS and/or USNOB1).
-
+    
     field_center: (ra, dec) in decimal degrees
     field_width: full width of field box, in arcseconds
     err_cut: require models to have fitting parameters lower than this value,
@@ -334,13 +337,7 @@ def produce_catalog( field_center, field_width, err_cut=1., redden=True, return_
     '''
     ra, dec = field_center #in decimal degrees
     mass, sdss, usnob = query_all(ra, dec, boxsize=field_width)
-
-    if sdss != None:
-        # before matching, prune the SDSS catalog down to only
-        #  the bright sources (saves time)
-        # Keep only sources with r_mag < 20.
-        sdss = np.array( [obj for obj in sdss if obj[6] < 20.] )
-
+    
     object_mags = []
     modes = []
     object_coords = []
@@ -354,7 +351,7 @@ def produce_catalog( field_center, field_width, err_cut=1., redden=True, return_
             usnob_matches = identify_matches( mass[:,:2], usnob[:,:2] )
         else:
             usnob_matches = [None]*len(mass)
-
+        
         # Go through 2mass objects and assemble a catalog
         #  of all objects present in 2mass and (sdss or usnob)
         #  Use 2mass+sdss OR 2mass+usnob (ignore usnob if sdss present)
@@ -372,10 +369,10 @@ def produce_catalog( field_center, field_width, err_cut=1., redden=True, return_
             object_mags.append( obs )
             modes.append( mode )
             object_coords.append( obj[:2] )
-
+    
     # now fit a model to each object, and construct the final SED,
     #  filling in missing observations with synthetic photometry.
-    final_seds = []
+    final_seds, out_coords, out_modes, out_errs = [], [], [], []
     for i, obs in enumerate(object_mags):
         mode = modes[i]
         # the masks show, in order, which bands are included
@@ -385,23 +382,23 @@ def produce_catalog( field_center, field_width, err_cut=1., redden=True, return_
         elif mode == 1: # usnob+2mass
             mask = [0,0,0,0,0, 0, 1,1, 1,1,1]
         mask = np.array(mask).astype(bool)
-
+        
         if redden:
             reddening = _get_reddening( ra,dec, ALL_FILTERS )
             # de-redden the observations before comparing
             #  to the models
             obs[::2] -= reddening[mask]
-
+        
         model, T, err = choose_model( obs, mask )
-
+        
         if err > err_cut: #apply quality-of-fit cut
-            final_seds.append(None)
+            continue
         else:
             if redden:
                 # re-redden the model and observations
                 obs[::2] += reddening[mask]
                 model += reddening
-
+                
             if return_model:
                 sed = model
             else:
@@ -410,26 +407,29 @@ def produce_catalog( field_center, field_width, err_cut=1., redden=True, return_
                 sed[mask] = obs[::2]
                 # fill in rest with modeled magnitudes
                 sed[~mask] = model[~mask]
-            final_seds.append(sed)
+            final_seds.append( sed )
+            out_coords.append( object_coords[i] )
+            out_modes.append( mode )
+            out_errs.append( err )
+    
+    return out_coords, final_seds, out_modes, out_errs
 
-    return object_coords, final_seds, modes
 
-
-def split_field( field_center, field_width, max_size ):
+def _split_field( field_center, field_width, max_size ):
     '''
     split a single field into many smaller chunks, to save time matching sources.
-
+    
     field_center: (ra, dec) in decimal degrees
     field_width: one side of box, in arcseconds
     max_size: maximum size of tile, in arcseconds
-
+    
     Returns: list of new field centers, width of new fields (in arcseconds)
     '''
     a2d = 2.778e-4 #conversion between arcseconds & degrees
-
+    
     n_tile = np.ceil(field_width/max_size).astype(int) # number of tiles needed in each dimension
     w_tile = (field_width/n_tile)*a2d # width of each tile in degrees
-
+    
     ra,dec = field_center
     centers = []
     rr = ra - a2d*field_width/2. + w_tile/2.  # the beginning positions of the tiling
@@ -439,8 +439,28 @@ def split_field( field_center, field_width, max_size ):
             centers.append( (rr, dd) )
             dd += w_tile
         rr += w_tile
-
+    
     return centers, w_tile/a2d
+
+
+def _find_field( star_coords, extend=.0015 ):
+    '''
+    determine the best field for a list of star coordinates,
+    so we can perform only a single query.
+    
+    star_coords: a list of star coordinates, in decimal degrees
+    extend: the buffer beyond the requested coordinates to add to the field
+      (also in decimal degrees)
+    
+    returns: (coordinates of center in decimal degrees), width_of_box (in arcseconds)
+    '''
+    ras = star_coords[:,0]
+    decs = star_coords[:,1]
+    width_ra = (max(ras)-min(ras) + 2*extend)
+    center_ra = np.mean(ras)
+    width_dec = (max(decs)-min(decs) + 2*extend)
+    center_dec = np.mean(decs)
+    return (center_ra, center_dec), max(width_ra, width_dec)*3600.
 
 
 ############################################
@@ -451,15 +471,14 @@ def _get_reddening( ra, dec, filters, dust_map=MAP_DICT ):
     '''
     returns reddening for filters at ra,dec as 
     defined by the dust_map_dict
-
+    
     example:
      de_reddened_mags = mags - reddening( ra,dec,filters )
     '''
-
     # coordinate-to-pixel mapping from the dust map fits header
     X_pix = lambda l,b,pole: np.sqrt(1.-dust_map[pole][1]*np.sin(b))*np.cos(l)*dust_map[pole][2]
     Y_pix = lambda l,b,pole: -dust_map[pole][1]*np.sqrt(1.-dust_map[pole][1]*np.sin(b))*np.sin(l)*dust_map[pole][2]
-
+    
     # get galactic coordinates with pyephem, which does everything in radians
     ra_rad = ra*(np.pi/180.)
     dec_rad = dec*(np.pi/180.)
@@ -471,17 +490,17 @@ def _get_reddening( ra, dec, filters, dust_map=MAP_DICT ):
         pole = 'N'
     else:
         pole = 'S'
-
+    
     # get E(B-V) for these coordinates
     X = int(round( X_pix(l,b,pole) ))
     Y = int(round( Y_pix(l,b,pole) ))
     EBV = dust_map[pole][0][X,Y]
-
+    
     # get reddening value for each filter in filters
     reddening = []
     for filt in filters:
         reddening.append( dust_map['Filters'][filt]*EBV )
-
+    
     return np.array( reddening )
 
 
@@ -490,7 +509,7 @@ def _error_C(C, model, obs):
     C: number, a constant akin to distance modulus
     model: array-like, model mags
     real: array-like, observed mags
-
+    
     returns: sum squared errors
     '''
     nm = model+C
@@ -504,7 +523,7 @@ def _error_C_reddening(pars, model, reddening, obs):
     model: array-like, model mags
     reddening: the reddening array for model (mags)
     real: array-like, observed mags
-
+    
     returns: sum squared errors
     '''
     C,R = pars
@@ -525,7 +544,6 @@ def choose_model( obs, mask, models=MODELS ):
            in order: [u,g,r,i,z,y,B,R,J,H,K]
     models: an array of modeled SEDs, where 0th entry is temperature
              of the model, and the rest are magnitudes
-
     '''
     # mask is an array used to choose which modeled magnitudes
     #  correspond to the included observations.
@@ -537,7 +555,7 @@ def choose_model( obs, mask, models=MODELS ):
     zerod_mags = mags - min(mags) # recenter to compare to models
     weights = 1./obs[1::2]
     #weights = np.ones(len(obs[1::2])) #try flat weights
-
+    
     # Go through all models and choose the one with the most similar SED
     #  Keep track of the sum_squared error
     sum_sqrs, Cs = [], []
@@ -557,9 +575,9 @@ def choose_model_reddening( obs, mask, reddening, models=MODELS ):
     '''
     Find and return the best model for obs.
     Do this by fitting to all magnitudes weighted by error.
-
+    
     Returns: model, temperature, quality_parameter
-
+    
     obs: an array of the observed magnitudes and errors, in
            order as defined by the mode key (see below)
     mask: defines what colors to use in the fit, i.e. what observations exist
@@ -567,19 +585,18 @@ def choose_model_reddening( obs, mask, reddening, models=MODELS ):
     reddening: an array of reddening corrections for these coordinates (mags)
     models: an array of modeled SEDs, where 0th entry is temperature
              of the model, and the rest are magnitudes
-
     '''
     # mask is an array used to choose which modeled magnitudes
     #  correspond to the included observations.
     #  Note: I append a leading zero to ignore the temperature of the model
     #   (saved in position 0 for all models)
     mask = np.hstack( (np.array([False]), np.array(mask).astype(bool)) )
-
+    
     mags = obs[::2]
     zerod_mags = mags - min(mags) # recenter to compare to models
     weights = 1./obs[1::2]
     #weights = np.ones(len(obs[1::2])) #try flat weights
-
+    
     # Go through all models and choose the one with the most similar SED
     #  Keep track of the sum_squared error
     sum_sqrs, Cs, Rs = [], [], []
@@ -599,36 +616,37 @@ def choose_model_reddening( obs, mask, reddening, models=MODELS ):
 
 
 ############################################
-# MAIN FUNCTION
+# MAIN FUNCTIONS
 ############################################
 
-def catalog( field_center, field_width, redden=True, savefile=None, max_size=1800.):
+def catalog( field_center, field_width, redden=False, savefile=None, max_size=1800.):
     '''
     Main cataloging function, this produces a catalog of all objects found in field.
     Requires records in 2MASS + (SDSS and/or USNOB1).
-
+    
     field_center: (ra, dec) in decimal degrees
     field_width: full width of field box, in arcseconds
     redden: boolean; account for galactic reddening
     savefile: optional; saves to specified file if present, otherwise returns answer
-
+    
     NOTE: if requested field_width is greater than max_size (in arcsec),
           this splits up the request into 900-arcsec chunks, to save time.
     '''
     if field_width > max_size:
         # split field up into smaller chunks, to run more quickly
-        centers, tile_width = split_field( field_center, field_width, max_size )
-
+        centers, tile_width = _split_field( field_center, field_width, max_size )
+        
         # go through each tile and accumulate the results:
-        object_coords, final_seds, modes = [],[],[]
+        object_coords, final_seds, modes, errors = [],[],[],[]
         for i,center in enumerate(centers):
-            oc, fs, ms = produce_catalog( center, tile_width, redden=redden )
+            oc, fs, ms, ers = produce_catalog( center, tile_width, redden=redden )
             object_coords += oc
             final_seds += fs
             modes += ms
+            errors += ers
     else:
-        object_coords, final_seds, modes = produce_catalog( field_center, field_width, redden=redden )
-
+        object_coords, final_seds, modes, errors = produce_catalog( field_center, field_width, redden=redden )
+    
     # Done! Save to file, or return SEDs and coordinates
     if savefile:
         format = lambda x: str(round(x, 3)) # a quick function to format the output
@@ -636,13 +654,95 @@ def catalog( field_center, field_width, redden=True, savefile=None, max_size=180
         fff.write('# Produced by get_SEDs.py \n# Catalog of objects in field of ' +
                   'size {} (arcsec) centered at {}.\n'.format( field_width, field_center) +
                   '# modes: 0 -> SDSS+2MASS; 1 -> USNOB1+2MASS\n'
-                  '# RA\tDEC\t' + '\t'.join(ALL_FILTERS) + '\tmode\n')
+                  '# RA\tDEC\t' + '\t'.join(ALL_FILTERS) + '\tmode\tdimensionless_error\n')
         for i,row in enumerate(final_seds):
-            if row == None:
-                continue # the quality-of-fit cut has been exceeded in produce_catalog
-            else:
-                fff.write( '\t'.join( map(str, object_coords[i]) ) + '\t' + '\t'.join( map(format, row) ) + '\t{}\n'.format(modes[i]) )
+            fff.write( '\t'.join( map(str, object_coords[i]) ) + '\t' + '\t'.join( map(format, row) ) + '\t{}\t{}\n'.format(modes[i], format(errors[i])) )
         fff.close()
     else:
         return np.array(object_coords), np.array(final_seds)
+    
+
+
+def _zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, sigma_cut=2. ):
+    '''
+    Calculate the zeropoint for a set of input stars and set of catalog stars.
+    
+    input_coords: a 2D array of [ [RA, DEC], [..., ...] ... ]
+    catalog_coords: similar array for objects created with catalog()
+    input_mags: a 1D array of instrumental magnitudes
+    catalog_mags: a similar array of true magnitudes as created with catalog()
+    sigma_cut: trim values beyond SC*sigma from mean
+    
+    Returns: zeropoint (mags) and an estimate of quality
+    '''
+    matches = identify_matches( input_coords, catalog_coords )
+    matched_inputs = [input_mags[i] for i in range(len(matches)) if matches[i] != None ]
+    matched_catalogs = [catalog_mags[ matches[i] ] for i in range(len(matches)) if matches[i] != None ]
+    
+    zp_estimates = []
+    for i,inst_mag in enumerate(matched_inputs):
+        zp_estimates.append( matched_catalogs[i] - inst_mag )
+    zp = np.array(zp_estimates)
+    zp_cut = e[ np.abs(zp-np.mean(zp)) < 2*np.std(zp) ]
+    
+    return np.mean(zp_cut)
+
+
+def zeropoint( input_file, band ):
+    '''
+    Calculate zeropoint for stars in an input text file.
+    '''
+    # internal definitions
+    data_dir = 'data'
+    sdss_map = { 'u':2, 'g':4, 'r':6, 'i':8, 'z':10 }  # index of band in query_sdss() response
+    catalog_map = { 'u':0, 'g':1, 'r':2, 'i':3, 'z':4, 'y':5 }  # index of band in catalog() response
+    
+    # load the data and pick a field
+    in_data = np.loadtxt( input_file )
+    input_coords = in_data[:, :2]
+    input_mags = in_data[:, 2]
+    field_center, field_width = _find_field( input_coords )
+    
+    # quick test whether field is in SDSS:
+    ra,dec = field_center
+    sdss = query_sdss( ra,dec, boxsize=50., trim_mag=30. )
+    if sdss != None:
+        in_sdss = True
+    else:
+        in_sdss = False
+    
+    # if field is in SDSS, see whether we've already queried and saved the objects
+    fmt = lambda x: str( round(x,2) )
+    if in_sdss:
+        if band.lower() == 'y':
+            if isfile( data_dir+'/{}_{}_catalog_coords.np'.format( fmt(ra), fmt(dec) ) ):
+                catalog_coords = np.load( data_dir+'/{}_{}_catalog_coords.np'.format( fmt(ra), fmt(dec) ) )
+                catalog_seds = np.load( data_dir+'/{}_{}_catalog_seds.np'.format( fmt(ra), fmt(dec) ) )
+            else:
+                catalog_coords, catalog_seds = catalog( field_center, field_width )
+                np.save( data_dir+'/{}_{}_catalog_coords.np'.format( fmt(ra), fmt(dec) ), catalog_coords
+                np.save( data_dir+'/{}_{}_catalog_seds.np'.format( fmt(ra), fmt(dec) ), catalog_seds )
+            catalog_mags = catalog_seds[:, catalog_map['y'] ]
+            
+        else:
+            if isfile( data_dir+'/{}_{}_sdss_query.np'.format( fmt(ra), fmt(dec) ) ):
+                sdss = np.load( data_dir+'/{}_{}_sdss_query.np'.format( fmt(ra), fmt(dec) ) )
+            else:
+                sdss = query_sdss( ra, dec, boxsize=field_width )
+                np.save( data_dir+'/{}_{}_sdss_query.np'.format( fmt(ra), fmt(dec) ), sdss )
+            catalog_coords = sdss[:,:2]
+            catalog_mags = sdss[:, sdss_map[band.lower()] ]
+    
+    else: # hit here if field is not in SDSS, but check to see whether we've already built the catalog
+        if isfile( data_dir+'/{}_{}_catalog_coords.np'.format( fmt(ra), fmt(dec) ) ):
+            catalog_coords = np.load( data_dir+'/{}_{}_catalog_coords.np'.format( fmt(ra), fmt(dec) ) )
+            catalog_seds = np.load( data_dir+'/{}_{}_catalog_seds.np'.format( fmt(ra), fmt(dec) ) )
+        else:
+            catalog_coords, catalog_seds = catalog( field_center, field_width )
+            np.save( data_dir+'/{}_{}_catalog_coords.np'.format( fmt(ra), fmt(dec) ), catalog_coords
+            np.save( data_dir+'/{}_{}_catalog_seds.np'.format( fmt(ra), fmt(dec) ), catalog_seds )
+        catalog_mags = catalog_seds[:, catalog_map[band.lower()] ]
+    
+    zp = _zeropoint( input_coords, catalog_coords, input_mags, catalog_mags )
+    return zp
 

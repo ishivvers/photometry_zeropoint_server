@@ -30,8 +30,13 @@ r = ps.ObsBandpass('sdss,r')
 i = ps.ObsBandpass('sdss,i')
 z = ps.ObsBandpass('sdss,z')
 
-# y-band from Pan-STARRS1
-y = ps.FileBandpass(pb_dir+'y_PS1_RSR.dat')
+# DECam passbands
+#u_d = ps.FileBandpass(pb_dir+'u_DECAM_RSR.dat')
+#g_d = ps.FileBandpass(pb_dir+'g_DECAM_RSR.dat')
+#r_d = ps.FileBandpass(pb_dir+'r_DECAM_RSR.dat')
+#i_d = ps.FileBandpass(pb_dir+'i_DECAM_RSR.dat')
+#z_d = ps.FileBandpass(pb_dir+'z_DECAM_RSR.dat')
+y_d = ps.FileBandpass(pb_dir+'y_DECAM_RSR.dat')
 
 # USNOB1 passbands
 B = ps.ObsBandpass('B')
@@ -42,7 +47,7 @@ J = ps.FileBandpass(pb_dir+'J_2Mass_RSR.dat')
 H = ps.FileBandpass(pb_dir+'H_2Mass_RSR.dat')
 K = ps.FileBandpass(pb_dir+'K_2Mass_RSR.dat')
 
-passbands = [u,g,r,i,z,y,B,R,J,H,K]
+passbands = [u,g,r,i,z, y_d, B,R, J,H,K]
 
 ################################################
 # SPECTRA
@@ -79,10 +84,10 @@ for T in Temps:
     for bp in passbands:
         ob = ps.Observation(spec, bp)
         # Use ABmags for ugrizy, but Vegamags for BRJHK
-        if bp in [u,g,r,i,z,y]:
-            mag = ob.effstim('abmag')
-        else:
+        if bp in [B,R, J,H,K,]:
             mag = ob.effstim('vegamag')
+        else:
+            mag = ob.effstim('abmag')
         single_phot.append(mag)
     # Save the model relative to K=0, with the 0th index as the temperature
     single_colors = [T]+[ val-single_phot[-1] for val in single_phot ]

@@ -19,7 +19,7 @@ To produce a catalog of all objects possible in a field, run:
 *** can run anywhere in the sky, in or out of SDSS footprint ***
 
 To view the SED of any single source, with model compared to observations:
-> show_SED( 314.136483, -6.081352 )
+> construct_SED( 314.136483, -6.081352 )
 *** other examples:
     # USNOB1+2MASS
     75.005564, 49.999882
@@ -32,16 +32,28 @@ To view the SED of any single source, with model compared to observations:
 To analyze the errors accrued for determining z-band photometry
 by fitting a model to USNOB1+2MASS or SDSS+2MASS (except for z),
 run:
-> test_z_errors( 220., 50., size=900. )
-*** this analyzes errors for objects in a 900" box around 220., 50.
+> e = test_SDSS_errors( 220., 50., 'z', size=5500. )
+*** this analyzes errors for objects in a 5500" box around RA,DEC = 220., 50.
 *** can run on any field in SDSS footprint
 	
 
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 to do:
 
++ change NERSC shell to bash (on nim.nersc.whatever)
++ default SEXtractor params are pretty reasonable, and can run on DES images
+ + email Peter if better params needed
+
+DES images (carver):
+/project/projectdirs/dessn
+* ds9 available in dessn/code
+
+
+
 Compare this output catalog with one produced by sextractor,
  and report instrumental zeropoint for relevant band.
 Compare results with results from standard-star observations.
+
+
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 

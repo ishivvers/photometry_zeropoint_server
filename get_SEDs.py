@@ -16,8 +16,8 @@ Requires:
 import numpy as np
 import matplotlib.pyplot as plt
 from subprocess import Popen, PIPE
-from scipy.optimize import minimize
-import pyfits, ephem
+from scipy.optimize import fmin_bfgs, fmin_l_bfgs_b
+import pyfits
 from os.path import isfile
 from threading import Thread
 
@@ -25,6 +25,11 @@ try:
     MODELS = np.load( open('all_models.npy','r') )
 except:
     raise IOError('cannot find models file')
+
+try:
+    from _libastro import eq_gal
+except:
+    raise Exception('cannot find _libastro.so')
 
 # open the dust extinction maps
 try:
@@ -479,13 +484,10 @@ def _get_reddening( ra, dec, filters, dust_map=MAP_DICT ):
     X_pix = lambda l,b,pole: np.sqrt(1.-dust_map[pole][1]*np.sin(b))*np.cos(l)*dust_map[pole][2]
     Y_pix = lambda l,b,pole: -dust_map[pole][1]*np.sqrt(1.-dust_map[pole][1]*np.sin(b))*np.sin(l)*dust_map[pole][2]
     
-    # get galactic coordinates with pyephem, which does everything in radians
+    # get galactic coordinates with eq_gal, which does everything in radians
     ra_rad = ra*(np.pi/180.)
     dec_rad = dec*(np.pi/180.)
-    coords_EQ = ephem.Equatorial(ra_rad,dec_rad)
-    coords_GA = ephem.Galactic(coords_EQ)
-    l = coords_GA.lon
-    b = coords_GA.lat
+    l,b = eq_gal( 2000., ra_rad, dec_rad )
     if b>0:
         pole = 'N'
     else:
@@ -557,12 +559,13 @@ def choose_model( obs, mask, models=MODELS ):
     #weights = np.ones(len(obs[1::2])) #try flat weights
     
     # Go through all models and choose the one with the most similar SED
-    #  Keep track of the sum_squared error
+    #  Keep track of the sum_squared error, as returned by _error_C()
     sum_sqrs, Cs = [], []
     for model in models[1:]:
-        res = minimize( _error_C, 0., args=(model[mask], zerod_mags) )
-        Cs.append(res.x[0])
-        sum_sqrs.append(res.values()[4])
+        res = fmin_bfgs( _error_C, 0., args=(model[mask], zerod_mags), full_output=True, disp=False )
+        Cs.append(res[0][0])
+        sum_sqrs.append(res[1])
+        
     i_best = np.argmin(sum_sqrs)
     best_model = models[1:][ i_best ] 
     # now add back in the zeropoint to get a model for the non-zerod observations
@@ -601,11 +604,11 @@ def choose_model_reddening( obs, mask, reddening, models=MODELS ):
     #  Keep track of the sum_squared error
     sum_sqrs, Cs, Rs = [], [], []
     for model in models[1:]:
-        res = minimize( _error_C_reddening, (0.,1.), args=(model[mask], reddening[mask[1:]], zerod_mags),
-                        method='TNC', bounds=( (None,None), (0., 1.2)) )
-        Cs.append(res.x[0])
-        Rs.append(res.x[1])
-        sum_sqrs.append(res.values()[3])
+        res = fmin_l_bfgs_b( _error_C_reddening, (0.,1.), args=(model[mask], reddening[mask[1:]], zerod_mags),
+                             bounds=((None,None), (0., 1.2)), disp=0, approx_grad=True )
+        Cs.append(res[0][0])
+        Rs.append(res[0][1])
+        sum_sqrs.append(res[1])
     i_best = np.argmin(sum_sqrs)
     best_model = models[1:][ i_best ] 
     # now add back in the zeropoint to get a model for the non-zerod observations
@@ -663,7 +666,7 @@ def catalog( field_center, field_width, redden=False, savefile=None, max_size=18
     
 
 
-def _zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, sigma_cut=2. ):
+def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, sigma_cut=2. ):
     '''
     Calculate the zeropoint for a set of input stars and set of catalog stars.
     
@@ -688,12 +691,17 @@ def _zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, sigma_cu
     return np.mean(zp_cut)
 
 
-def zeropoint( input_file, band ):
+def zeropoint( input_file ):
     '''
     Calculate zeropoint for stars in an input text file.
+    
+    Maybe run a crontab to delete these files in datadir daily?
+    
+    Expects input file of format:
+     IDSTRING_band_XXX.txt  (ascii, np.loadtxt-readable)
     '''
     # internal definitions
-    data_dir = 'data'
+    data_dir = 'data/'
     sdss_map = { 'u':2, 'g':4, 'r':6, 'i':8, 'z':10 }  # index of band in query_sdss() response
     catalog_map = { 'u':0, 'g':1, 'r':2, 'i':3, 'z':4, 'y':5 }  # index of band in catalog() response
     
@@ -702,6 +710,7 @@ def zeropoint( input_file, band ):
     input_coords = in_data[:, :2]
     input_mags = in_data[:, 2]
     field_center, field_width = _find_field( input_coords )
+    idstring, band = inputfile.split('_')[:2]
     
     # quick test whether field is in SDSS:
     ra,dec = field_center
@@ -715,34 +724,34 @@ def zeropoint( input_file, band ):
     fmt = lambda x: str( round(x,2) )
     if in_sdss:
         if band.lower() == 'y':
-            if isfile( data_dir+'/{}_{}_catalog_coords.np'.format( fmt(ra), fmt(dec) ) ):
-                catalog_coords = np.load( data_dir+'/{}_{}_catalog_coords.np'.format( fmt(ra), fmt(dec) ) )
-                catalog_seds = np.load( data_dir+'/{}_{}_catalog_seds.np'.format( fmt(ra), fmt(dec) ) )
+            if isfile( data_dir+idstring+'_catalog_coords.np' ):
+                catalog_coords = np.load( data_dir+idstring+'_catalog_coords.np' )
+                catalog_seds = np.load( data_dir+idstring+'_catalog_seds.np')
             else:
                 catalog_coords, catalog_seds = catalog( field_center, field_width )
-                np.save( data_dir+'/{}_{}_catalog_coords.np'.format( fmt(ra), fmt(dec) ), catalog_coords
-                np.save( data_dir+'/{}_{}_catalog_seds.np'.format( fmt(ra), fmt(dec) ), catalog_seds )
+                np.save( data_dir+idstring+'_catalog_coords.np' ), catalog_coords
+                np.save( data_dir+idstring+'_catalog_seds.np', catalog_seds )
             catalog_mags = catalog_seds[:, catalog_map['y'] ]
             
         else:
-            if isfile( data_dir+'/{}_{}_sdss_query.np'.format( fmt(ra), fmt(dec) ) ):
-                sdss = np.load( data_dir+'/{}_{}_sdss_query.np'.format( fmt(ra), fmt(dec) ) )
+            if isfile( data_dir+idstring+'_sdss_query.np' ):
+                sdss = np.load( data_dir+idstring+'_sdss_query.np' )
             else:
                 sdss = query_sdss( ra, dec, boxsize=field_width )
-                np.save( data_dir+'/{}_{}_sdss_query.np'.format( fmt(ra), fmt(dec) ), sdss )
+                np.save( data_dir+idstring+'_sdss_query.np', sdss )
             catalog_coords = sdss[:,:2]
             catalog_mags = sdss[:, sdss_map[band.lower()] ]
     
     else: # hit here if field is not in SDSS, but check to see whether we've already built the catalog
-        if isfile( data_dir+'/{}_{}_catalog_coords.np'.format( fmt(ra), fmt(dec) ) ):
-            catalog_coords = np.load( data_dir+'/{}_{}_catalog_coords.np'.format( fmt(ra), fmt(dec) ) )
-            catalog_seds = np.load( data_dir+'/{}_{}_catalog_seds.np'.format( fmt(ra), fmt(dec) ) )
+        if isfile( data_dir+idstring+'_catalog_coords.np' ):
+            catalog_coords = np.load( data_dir+idstring+'_catalog_coords.np' )
+            catalog_seds = np.load( data_dir+idstring+'_catalog_seds.np' )
         else:
             catalog_coords, catalog_seds = catalog( field_center, field_width )
-            np.save( data_dir+'/{}_{}_catalog_coords.np'.format( fmt(ra), fmt(dec) ), catalog_coords
-            np.save( data_dir+'/{}_{}_catalog_seds.np'.format( fmt(ra), fmt(dec) ), catalog_seds )
+            np.save( data_dir+idstring+'_catalog_coords.np', catalog_coords )
+            np.save( data_dir+idstring+'_catalog_seds.np', catalog_seds )
         catalog_mags = catalog_seds[:, catalog_map[band.lower()] ]
     
-    zp = _zeropoint( input_coords, catalog_coords, input_mags, catalog_mags )
+    zp = calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags )
     return zp
 

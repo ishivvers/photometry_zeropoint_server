@@ -686,8 +686,7 @@ def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, sigm
     for i,inst_mag in enumerate(matched_inputs):
         zp_estimates.append( matched_catalogs[i] - inst_mag )
     zp = np.array(zp_estimates)
-    zp_cut = e[ np.abs(zp-np.mean(zp)) < 2*np.std(zp) ]
-    
+    zp_cut = zp[ np.abs(zp-np.mean(zp)) < 2*np.std(zp) ]
     return np.mean(zp_cut)
 
 
@@ -710,7 +709,7 @@ def zeropoint( input_file ):
     input_coords = in_data[:, :2]
     input_mags = in_data[:, 2]
     field_center, field_width = _find_field( input_coords )
-    idstring, band = inputfile.split('_')[:2]
+    idstring, band = input_file.split('_')[:2]
     
     # quick test whether field is in SDSS:
     ra,dec = field_center
@@ -724,32 +723,32 @@ def zeropoint( input_file ):
     fmt = lambda x: str( round(x,2) )
     if in_sdss:
         if band.lower() == 'y':
-            if isfile( data_dir+idstring+'_catalog_coords.np' ):
-                catalog_coords = np.load( data_dir+idstring+'_catalog_coords.np' )
-                catalog_seds = np.load( data_dir+idstring+'_catalog_seds.np')
+            if isfile( data_dir+idstring+'_catalog_coords.npy' ):
+                catalog_coords = np.load( data_dir+idstring+'_catalog_coords.npy' )
+                catalog_seds = np.load( data_dir+idstring+'_catalog_seds.npy')
             else:
                 catalog_coords, catalog_seds = catalog( field_center, field_width )
-                np.save( data_dir+idstring+'_catalog_coords.np' ), catalog_coords
-                np.save( data_dir+idstring+'_catalog_seds.np', catalog_seds )
+                np.save( data_dir+idstring+'_catalog_coords.npy', catalog_coords )
+                np.save( data_dir+idstring+'_catalog_seds.npy', catalog_seds )
             catalog_mags = catalog_seds[:, catalog_map['y'] ]
             
         else:
-            if isfile( data_dir+idstring+'_sdss_query.np' ):
-                sdss = np.load( data_dir+idstring+'_sdss_query.np' )
+            if isfile( data_dir+idstring+'_sdss_query.npy' ):
+                sdss = np.load( data_dir+idstring+'_sdss_query.npy' )
             else:
                 sdss = query_sdss( ra, dec, boxsize=field_width )
-                np.save( data_dir+idstring+'_sdss_query.np', sdss )
+                np.save( data_dir+idstring+'_sdss_query.npy', sdss )
             catalog_coords = sdss[:,:2]
             catalog_mags = sdss[:, sdss_map[band.lower()] ]
     
     else: # hit here if field is not in SDSS, but check to see whether we've already built the catalog
-        if isfile( data_dir+idstring+'_catalog_coords.np' ):
-            catalog_coords = np.load( data_dir+idstring+'_catalog_coords.np' )
-            catalog_seds = np.load( data_dir+idstring+'_catalog_seds.np' )
+        if isfile( data_dir+idstring+'_catalog_coords.npy' ):
+            catalog_coords = np.load( data_dir+idstring+'_catalog_coords.npy' )
+            catalog_seds = np.load( data_dir+idstring+'_catalog_seds.npy' )
         else:
             catalog_coords, catalog_seds = catalog( field_center, field_width )
-            np.save( data_dir+idstring+'_catalog_coords.np', catalog_coords )
-            np.save( data_dir+idstring+'_catalog_seds.np', catalog_seds )
+            np.save( data_dir+idstring+'_catalog_coords.npy', catalog_coords )
+            np.save( data_dir+idstring+'_catalog_seds.npy', catalog_seds )
         catalog_mags = catalog_seds[:, catalog_map[band.lower()] ]
     
     zp = calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags )

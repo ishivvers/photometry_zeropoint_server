@@ -15,7 +15,7 @@ from get_SEDs import *
 ############################################
 
 
-def test_SDSS_errors( ra, dec, band_name='z', mod_choice=1, redden=False, size=900., plot=True ):
+def test_SDSS_errors( ra, dec, band_name='z', redden=False, size=900., plot=True ):
     '''
     Test the error accrued for all sources in a field when estimating 
      SDSS _-band photometry from all modes.  Errors in y-band photometry

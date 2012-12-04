@@ -1,24 +1,47 @@
-This is a draft framework for a photometric zeropoint server.
-Currently, it produces a catalog of magnitudes 
- for all sources in SDSS or 2MASS+USNOB1, including
- u,g,r,i,z,y,B,R,J,H,K photometry, using a combination
- of the cataloged magnitudes and synthetic photometry.
+This is a photometric zeropoint server, using cataloged
+ magnitudes from SDSS, USNOB1, and 2-MASS to either 
+ lookup or calculate the SEDs for sources detected in an
+ image, then using their cataloged/calculated magnitudes
+ in a passband to calculate an estimate of the photometric
+ zeropoint for a set of instrumental magnitudes.
+ (E.G. SExtractor output.)
+
+The main zeropoint.py script assumes that input files are readable
+ with numpy.loadtxt --- i.e. #-commented, tab-or-space-delimited, and uniform.
+ The first column should be RA, the second DEC, the third the instrumental mag,
+ and the rest are arbitrary and unused.
+ The naming of the file is important, and composed of three parts:
+  [FIELD ID]_[PASSBAND]_[ARBITRARY TEXT]
+ THESE THREE PARTS MUST BE SEPARATED BY AN UNDERSCORE (_) AS IN THE LINE ABOVE.
+ The FIELD ID is used to save time on queries, and track whether we've already
+  built a catalog for a field.  This can be any arbitrary string, but each
+  field (i.e. for all bands) should have the same FIELD ID.
+ The PASSBAND must be one of the DECam passbands, u,g,r,i,z,y (case ignored)
+ The rest of the filename is ignored.
 
 REQUIRES commmand line tools findsdss8, find2mass, findusnob1
  - available from http://cdsarc.u-strasbg.fr/doc/cdsclient.html
 
+Author: Isaac Shivvers
+        ishivvers@berkeley
+
+
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 EXAMPLES:
-first import everything, e.g.:
-> from get_SEDs import *
+
+To calculate the zeropoint for a field of instrumental
+ magnitudes (in the properly-formatted file `00146952_z_DECam.16.p.w.txt'):
+$ python zeropoint.py 00146952_z_DECam.16.p.w.txt
 
 To produce a catalog of all objects possible in a field, run:
+> from get_SEDs import *
 > catalog( (314.136483, -6.081352), 900., savefile='catalog.txt' )
 *** catalog of objects in a 1/4 degree (900") field centered at 314.136483, -6.081352 ***
 *** can run anywhere in the sky, in or out of SDSS footprint ***
 
 To view the SED of any single source, with model compared to observations:
+> from get_SEDs import *
 > construct_SED( 314.136483, -6.081352 )
 *** other examples:
     # USNOB1+2MASS
@@ -32,28 +55,17 @@ To view the SED of any single source, with model compared to observations:
 To analyze the errors accrued for determining z-band photometry
 by fitting a model to USNOB1+2MASS or SDSS+2MASS (except for z),
 run:
-> e = test_SDSS_errors( 220., 50., 'z', size=5500. )
-*** this analyzes errors for objects in a 5500" box around RA,DEC = 220., 50.
+> from tests.py import *
+> e = test_SDSS_errors( 220., 50., 'z', size=550. )
+*** this analyzes errors for objects in a 550" box around RA,DEC = 220., 50.
 *** can run on any field in SDSS footprint
 	
 
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 to do:
 
-+ change NERSC shell to bash (on nim.nersc.whatever)
-+ default SEXtractor params are pretty reasonable, and can run on DES images
- + email Peter if better params needed
-
-DES images (carver):
-/project/projectdirs/dessn
-* ds9 available in dessn/code
-
-
-
-Compare this output catalog with one produced by sextractor,
- and report instrumental zeropoint for relevant band.
-Compare results with results from standard-star observations.
-
++ Compare results with results from standard-star observations.
++ Verify acceptable radii for matches
 
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 

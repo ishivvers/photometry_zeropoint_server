@@ -7,6 +7,8 @@ Requires:
 - all_models.npy, a file produced by assemble_models.py
 - Schlegel et al. dust extiction maps in a folder named dust_maps
 
+TO DO:
+- split field in calculate_zeropoint to decrease running time
 '''
 
 
@@ -313,10 +315,9 @@ def identify_matches( queried_stars, found_stars, match_radius=1. ):
     '''
     match_radius_squared = (2.778e-4*match_radius)**2 # convert arcseconds into degrees
     matches = []
-    #matched = np.zeros(len(found_stars)).astype(bool) # mask to track which stars have already been matched
     for star in queried_stars:
-        # calculate the distance to each located star
-        diffs_squared = [((star[0]-other[0])**2 + (star[1]-other[1])**2) for other in found_stars] #[~matched]]
+        # calculate the distance to each star
+        diffs_squared = [((star[0]-other[0])**2 + (star[1]-other[1])**2) for other in found_stars] 
         if min(diffs_squared) < match_radius_squared:
             i_best = np.argmin(diffs_squared)
             matches.append(i_best)
@@ -420,31 +421,44 @@ def produce_catalog( field_center, field_width, err_cut=2., redden=True, return_
     return out_coords, final_seds, out_modes, out_errs
 
 
-def _split_field( field_center, field_width, max_size ):
+def _split_field( field_center, field_width, max_size, object_coords=None ):
     '''
     split a single field into many smaller chunks, to save time matching sources.
     
     field_center: (ra, dec) in decimal degrees
-    field_width: one side of box, in arcseconds
+    field_width: each side of box, in arcseconds (RA_width, DEC_width)
     max_size: maximum size of tile, in arcseconds
     
     Returns: list of new field centers, width of new fields (in arcseconds)
     '''
     a2d = 2.778e-4 #conversion between arcseconds & degrees
     
-    n_tile = np.ceil(field_width/max_size).astype(int) # number of tiles needed in each dimension
-    w_tile = (field_width/n_tile)*a2d # width of each tile in degrees
+    R_n_tile = np.ceil(field_width[0]/max_size).astype(int) # number of tiles needed in RA
+    D_n_tile = np.ceil(field_width[1]/max_size).astype(int) # number of tiles needed in DEC
+    # use the width implied by larger of the two dimensions
+    w_tile = max( (field_width[0]/R_n_tile,field_width[1]/D_n_tile) )*a2d # width of each tile in degrees
     
     ra,dec = field_center
     centers = []
-    rr = ra - a2d*field_width/2. + w_tile/2.  # the beginning positions of the tiling
-    for i in range(n_tile):
-        dd = dec - a2d*field_width/2. + w_tile/2.
-        for j in range(n_tile):
+    rr = ra - a2d*field_width[0]/2. + w_tile/2.  # the beginning positions of the tiling
+    for i in range(R_n_tile):
+        dd = dec - a2d*field_width[1]/2. + w_tile/2.
+        for j in range(D_n_tile):
             centers.append( (rr, dd) )
             dd += w_tile
         rr += w_tile
     
+    if object_coords != None:
+        # keep only those that contain sources
+        RAs = object_coords[:,0]
+        DECs = object_coords[:,1]
+        good_centers = []
+        for cent in centers:
+            tf_array = (np.abs(RAs - cent[0]) < w_tile/2.) & (np.abs(DECs - cent[1]) < w_tile/2.)
+            if any(tf_array):
+                good_centers.append(cent)
+        centers = good_centers
+        
     return centers, w_tile/a2d
 
 
@@ -457,7 +471,7 @@ def _find_field( star_coords, extend=.0015 ):
     extend: the buffer beyond the requested coordinates to add to the field
       (also in decimal degrees)
     
-    returns: (coordinates of center in decimal degrees), width_of_box (in arcseconds)
+    returns: (coordinates of center in decimal degrees), (RA_width_of_box, DEC_width_of_box) (in arcseconds)
     '''
     ras = star_coords[:,0]
     decs = star_coords[:,1]
@@ -465,7 +479,7 @@ def _find_field( star_coords, extend=.0015 ):
     center_ra = np.mean(ras)
     width_dec = (max(decs)-min(decs) + 2*extend)
     center_dec = np.mean(decs)
-    return (center_ra, center_dec), max(width_ra, width_dec)*3600.
+    return (center_ra, center_dec), (width_ra*3600, width_dec*3600.)
 
 
 ############################################
@@ -571,7 +585,8 @@ def choose_model( obs, mask, models=MODELS ):
     # now add back in the zeropoint to get a model for the non-zerod observations
     C = Cs[i_best] + min(mags)
     # return all magnitudes for best model, the temperature, and a quality metric for the best fit
-    return (best_model[1:] + C, best_model[0], sum_sqrs[i_best])
+    #  The quality metric is the average error between the best model and the observations
+    return (best_model[1:] + C, best_model[0], (sum_sqrs[i_best]/len(mags))**.5 )
 
 
 def choose_model_reddening( obs, mask, reddening, models=MODELS ):
@@ -622,22 +637,24 @@ def choose_model_reddening( obs, mask, reddening, models=MODELS ):
 # MAIN FUNCTIONS
 ############################################
 
-def catalog( field_center, field_width, redden=False, savefile=None, max_size=1800.):
+def catalog( field_center, field_width, object_coords=None, redden=False, savefile=None, max_size=1800.):
     '''
     Main cataloging function, this produces a catalog of all objects found in field.
     Requires records in 2MASS + (SDSS and/or USNOB1).
     
     field_center: (ra, dec) in decimal degrees
     field_width: full width of field box, in arcseconds
+    object_coords: found objects we will compare to; if not none,
+               the script will not catalog fields in which there are no objects
     redden: boolean; account for galactic reddening
     savefile: optional; saves to specified file if present, otherwise returns answer
     
     NOTE: if requested field_width is greater than max_size (in arcsec),
           this splits up the request into 900-arcsec chunks, to save time.
     '''
-    if field_width > max_size:
+    if max(field_width) > max_size:
         # split field up into smaller chunks, to run more quickly
-        centers, tile_width = _split_field( field_center, field_width, max_size )
+        centers, tile_width = _split_field( field_center, field_width, max_size, object_coords=object_coords )
         
         # go through each tile and accumulate the results:
         object_coords, final_seds, modes, errors = [],[],[],[]
@@ -648,14 +665,14 @@ def catalog( field_center, field_width, redden=False, savefile=None, max_size=18
             modes += ms
             errors += ers
     else:
-        object_coords, final_seds, modes, errors = produce_catalog( field_center, field_width, redden=redden )
+        object_coords, final_seds, modes, errors = produce_catalog( field_center, max(field_width), redden=redden )
     
     # Done! Save to file, or return SEDs and coordinates
     if savefile:
         format = lambda x: str(round(x, 3)) # a quick function to format the output
         fff = open(savefile,'w')
         fff.write('# Produced by get_SEDs.py \n# Catalog of objects in field of ' +
-                  'size {} (arcsec) centered at {}.\n'.format( field_width, field_center) +
+                  'size {} (RA,DEC in arcsec) centered at {}.\n'.format( field_width, field_center) +
                   '# modes: 0 -> SDSS+2MASS; 1 -> USNOB1+2MASS\n'
                   '# RA\tDEC\t' + '\t'.join(ALL_FILTERS) + '\tmode\tdimensionless_error\n')
         for i,row in enumerate(final_seds):
@@ -677,6 +694,8 @@ def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, sigm
     sigma_cut: trim values beyond SC*sigma from mean
     
     Returns: zeropoint (mags) and an estimate of quality
+    
+    TO DO: split these fields before matching.  See how it is done in produce_catalog.
     '''
     matches = identify_matches( input_coords, catalog_coords )
     matched_inputs = [input_mags[i] for i in range(len(matches)) if matches[i] != None ]
@@ -727,7 +746,7 @@ def zeropoint( input_file ):
                 catalog_coords = np.load( data_dir+idstring+'_catalog_coords.npy' )
                 catalog_seds = np.load( data_dir+idstring+'_catalog_seds.npy')
             else:
-                catalog_coords, catalog_seds = catalog( field_center, field_width )
+                catalog_coords, catalog_seds = catalog( field_center, field_width, object_coords=input_coords )
                 np.save( data_dir+idstring+'_catalog_coords.npy', catalog_coords )
                 np.save( data_dir+idstring+'_catalog_seds.npy', catalog_seds )
             catalog_mags = catalog_seds[:, catalog_map['y'] ]
@@ -746,7 +765,7 @@ def zeropoint( input_file ):
             catalog_coords = np.load( data_dir+idstring+'_catalog_coords.npy' )
             catalog_seds = np.load( data_dir+idstring+'_catalog_seds.npy' )
         else:
-            catalog_coords, catalog_seds = catalog( field_center, field_width )
+            catalog_coords, catalog_seds = catalog( field_center, field_width, object_coords=input_coords )
             np.save( data_dir+idstring+'_catalog_coords.npy', catalog_coords )
             np.save( data_dir+idstring+'_catalog_seds.npy', catalog_seds )
         catalog_mags = catalog_seds[:, catalog_map[band.lower()] ]

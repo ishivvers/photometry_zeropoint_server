@@ -51,12 +51,11 @@ def get_Y_match( object_coords, DEC_obs, max_size=900., plot=False):
     print 'Matching to 2MASS...'
     # go through each tile and accumulate the results:
     matched_coords, matched_obs, matched_indexer = [],[],[]
-    for center in centers:
+    for icent, center in enumerate(centers):
+        print icent
         mass = query_2mass( center[0], center[1], boxsize=tile_width )
         if mass != None:
             # produce list of matched objects
-            #  If can figure a better way to track indices, could make this faster by
-            #  only attempting to match to sources in this queried field.
             matches = identify_matches( mass[:,:2], good_coords )
             if matches != None:
                 for i,obj in enumerate(mass):
@@ -76,7 +75,7 @@ def get_Y_match( object_coords, DEC_obs, max_size=900., plot=False):
     modeled_mags, modeled_errs = [],[]
     print 'Modeling matches...'
     for i, obs in enumerate(matched_obs):
-        if i%10==0: print i
+        if not i%100: print i
         
         good_obs = []
         mask = [1,1,1,1,1, 0, 0,0, 1,1,1] #expected
@@ -194,7 +193,7 @@ if __name__ == '__main__':
     import os, sys
     prefix = 'catalogs/'
     for fname in os.listdir(prefix):
-        if sys.argv[1] not in fname or 'sources' not in fname:
+        if sys.argv[1] not in fname or 'sources' not in fname or 'all' in fname:
             continue
         print '*'*20
         print 'working on', fname
@@ -215,7 +214,7 @@ if __name__ == '__main__':
         dec_obs[:,1::2] = data[:,8:14]
         
         #out_coords, obj_mags, errors = get_Y_all( data[:,:2], dec_obs )
-        out_coords, obj_mags, errors = get_Y_match( data[:,:2][:1000], dec_obs[:1000], plot=10 )
+        out_coords, obj_mags, errors = get_Y_match( data[:,:2], dec_obs )
         
         #save to file
         fff = open(prefix+fname.split('.')[0]+'_match.catalog', 'w')

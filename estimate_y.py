@@ -215,7 +215,7 @@ if __name__ == '__main__':
         dec_obs[:,1::2] = data[:,8:14]
         
         #out_coords, obj_mags, errors = get_Y_all( data[:,:2], dec_obs )
-        out_coords, obj_mags, errors = get_Y_match( data[:,:2], dec_obs )
+        out_coords, obj_mags, errors = get_Y_match( data[:,:2][:1000], dec_obs[:1000], plot=10 )
         
         #save to file
         fff = open(prefix+fname.split('.')[0]+'_match.catalog', 'w')

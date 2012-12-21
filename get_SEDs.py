@@ -313,15 +313,29 @@ def identify_matches( queried_stars, found_stars, match_radius=1. ):
     match_radius: the maximum offset between queried and found star to 
       call a match, in arcseconds
     '''
-    match_radius_squared = (2.778e-4*match_radius)**2 # convert arcseconds into degrees
+    match_radius = 2.778e-4*match_radius  # convert arcseconds into degrees
+    # find the box that encloses all queried stars, and only match to
+    #  stars within that box
+    ra_range = (np.min(queried_stars[:,0]-match_radius), np.max(queried_stars[:,0]+match_radius))
+    dec_range = (np.min(queried_stars[:,1]-match_radius), np.max(queried_stars[:,1])+match_radius)
+    
+    match_radius_squared = match_radius**2 
     matches = []
     for star in queried_stars:
-        # calculate the distance to each star
-        diffs_squared = [((star[0]-other[0])**2 + (star[1]-other[1])**2) for other in found_stars] 
+        # calculate the distance to each star, but only if it's within the box:
+        diffs_squared = []
+        for other in found_stars:
+            # don't bother with stars outside the box
+            if not (ra_range[0] < other[0] < ra_range[1]) \
+                    or not (dec_range[0] < other[1] < dec_range[1]):
+                diffs_squared.append(999.)
+                continue
+            ds = (star[0]-other[0])**2 + (star[1]-other[1])**2
+            diffs_squared.append(ds)
+        
         if min(diffs_squared) < match_radius_squared:
             i_best = np.argmin(diffs_squared)
             matches.append(i_best)
-            #matched[i_best] = True
         else:
             matches.append(None) 
     return matches

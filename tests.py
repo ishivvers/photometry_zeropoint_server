@@ -234,7 +234,7 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=False, size=900., plot=True
         
 
 # example: ra, dec = (314.136483, -6.081352)
-def construct_SED( ra, dec, redden=True ):
+def construct_SED( ra, dec, redden=False ):
     '''
     Construct the SED for a single object using SDSS or USNOB
      and 2MASS magnitudes as well as synthetic photometry from a 
@@ -253,6 +253,7 @@ def construct_SED( ra, dec, redden=True ):
         mask = [0,0,0,0,0,0,1,1,1,1,1]
     else:
         raise Exception('Cannot find source!')
+    mask = np.array(mask).astype(bool)
     
     if redden:
         reddening = _get_reddening( ra,dec, ALL_FILTERS )
@@ -260,9 +261,10 @@ def construct_SED( ra, dec, redden=True ):
     else:
         model, T, err = choose_model( obs, mask )
         
-    plt.scatter( MODELS[0][1:][mask], obs[::2], c='g', label='observations' )
+    plt.scatter( MODELS[0][1:][mask], obs[::2], c='r', marker='x', label='observations' )
     plt.scatter( MODELS[0][1:], model, c='b', marker='D', label='model' )
-    plt.legend(loc='best')
+    plt.gca().invert_yaxis()
+    plt.legend(loc='lower right')
     plt.xlabel('Wavelength (A)')
     plt.ylabel('Mag')
     plt.title( 'SED, using model: {}K --- error param: {}'.format(round(T), round(err,2)) )

@@ -22,8 +22,6 @@ The main zeropoint.py script assumes that input files are readable
 REQUIRES commmand line tools findsdss8, find2mass, findusnob1
  - available from http://cdsarc.u-strasbg.fr/doc/cdsclient.html
 
-Author: Isaac Shivvers
-        ishivvers@berkeley
 
 
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -36,7 +34,7 @@ $ python zeropoint.py 00146952_z_DECam.16.p.w.txt
 
 To produce a catalog of all objects possible in a field, run:
 > from get_SEDs import *
-> catalog( (314.136483, -6.081352), 900., savefile='catalog.txt' )
+> catalog( (314.136483, -6.081352), (900.,900.), savefile='catalog.txt' )
 *** catalog of objects in a 1/4 degree (900") field centered at 314.136483, -6.081352 ***
 *** can run anywhere in the sky, in or out of SDSS footprint ***
 
@@ -56,9 +54,11 @@ To analyze the errors accrued for determining z-band photometry
 by fitting a model to USNOB1+2MASS or SDSS+2MASS (except for z),
 run:
 > from tests.py import *
-> e = test_SDSS_errors( 220., 50., 'z', size=550. )
-*** this analyzes errors for objects in a 550" box around RA,DEC = 220., 50.
-*** can run on any field in SDSS footprint
+> e = test_SDSS_errors( 220., 50., 'z', size=900. )
+*** this analyzes errors for objects in a 900" box around RA,DEC = 220., 50.
+*** can run on any field in SDSS footprint.
+*** note that most of the worst individual fits seem to be due
+*** to incorrect cross-matches.
 	
 
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

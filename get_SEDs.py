@@ -673,6 +673,7 @@ def catalog( field_center, field_width, object_coords=None, redden=False, savefi
         # go through each tile and accumulate the results:
         object_coords, final_seds, modes, errors = [],[],[],[]
         for i,center in enumerate(centers):
+            print i,'of',len(centers)
             oc, fs, ms, ers = produce_catalog( center, tile_width, redden=redden )
             object_coords += oc
             final_seds += fs
@@ -683,14 +684,14 @@ def catalog( field_center, field_width, object_coords=None, redden=False, savefi
     
     # Done! Save to file, or return SEDs and coordinates
     if savefile:
-        format = lambda x: str(round(x, 3)) # a quick function to format the output
+        f_format = lambda x: str(round(x, 5)) # a quick function to format the output
         fff = open(savefile,'w')
         fff.write('# Produced by get_SEDs.py \n# Catalog of objects in field of ' +
-                  'size {} (RA,DEC in arcsec) centered at {}.\n'.format( field_width, field_center) +
+                  'size (%.f, %.f) (RA,DEC in arcsec) centered at (%.4f, %.4f).\n' %( field_width[0], field_width[1], field_center[0], field_center[1]) +
                   '# modes: 0 -> SDSS+2MASS; 1 -> USNOB1+2MASS\n'
-                  '# RA\tDEC\t' + '\t'.join(ALL_FILTERS) + '\tmode\tdimensionless_error\n')
+                  '# RA\tDEC\t' + '\t'.join(ALL_FILTERS) + '\tmode\terror\n')
         for i,row in enumerate(final_seds):
-            fff.write( '\t'.join( map(str, object_coords[i]) ) + '\t' + '\t'.join( map(format, row) ) + '\t{}\t{}\n'.format(modes[i], format(errors[i])) )
+            fff.write( '\t'.join( map(str, object_coords[i]) ) + '\t' + '\t'.join( map(f_format, row) ) + '\t{}\t{}\n'.format(modes[i], f_format(errors[i])) )
         fff.close()
     else:
         return np.array(object_coords), np.array(final_seds)

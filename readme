@@ -23,7 +23,8 @@ REQUIRES commmand line tools findsdss8, find2mass, findusnob1
  - available from http://cdsarc.u-strasbg.fr/doc/cdsclient.html
 
 
-
+TO DO:
+- move to pickles, replace temp with index, and map to type
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 EXAMPLES:
@@ -53,7 +54,7 @@ To view the SED of any single source, with model compared to observations:
 To analyze the errors accrued for determining z-band photometry
 by fitting a model to USNOB1+2MASS or SDSS+2MASS (except for z),
 run:
-> from tests.py import *
+> from tests import *
 > e = test_SDSS_errors( 220., 50., 'z', size=900. )
 *** this analyzes errors for objects in a 900" box around RA,DEC = 220., 50.
 *** can run on any field in SDSS footprint.

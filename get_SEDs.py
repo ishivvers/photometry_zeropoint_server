@@ -24,7 +24,7 @@ from os.path import isfile
 from threading import Thread
 
 try:
-    MODELS = np.load( open('all_models.npy','r') )
+    MODELS = np.load( open('all_models_P.npy','r') )
 except:
     raise IOError('cannot find models file')
 
@@ -341,7 +341,7 @@ def identify_matches( queried_stars, found_stars, match_radius=1. ):
     return matches
 
 
-def produce_catalog( field_center, field_width, err_cut=2., redden=True, return_model=False ):
+def produce_catalog( field_center, field_width, err_cut=2., redden=True, return_models=False ):
     '''
     Create a catalog of all objects found in field.
     Requires records in 2MASS + (SDSS and/or USNOB1).
@@ -392,7 +392,7 @@ def produce_catalog( field_center, field_width, err_cut=2., redden=True, return_
     
     # now fit a model to each object, and construct the final SED,
     #  filling in missing observations with synthetic photometry.
-    final_seds, out_coords, out_modes, out_errs = [], [], [], []
+    final_seds, out_coords, out_modes, out_errs, models_used = [], [], [], [], []
     for i, obs in enumerate(object_mags):
         mode = modes[i]
         # the masks show, in order, which bands are included
@@ -409,7 +409,7 @@ def produce_catalog( field_center, field_width, err_cut=2., redden=True, return_
             #  to the models
             obs[::2] -= reddening[mask]
         
-        model, T, err = choose_model( obs, mask )
+        model, C, T, err = choose_model( obs, mask )
         
         if err > err_cut: #apply quality-of-fit cut
             continue
@@ -419,20 +419,21 @@ def produce_catalog( field_center, field_width, err_cut=2., redden=True, return_
                 obs[::2] += reddening[mask]
                 model += reddening
                 
-            if return_model:
-                sed = model
-            else:
-                sed = np.empty(11)
-                # keep the real observations
-                sed[mask] = obs[::2]
-                # fill in rest with modeled magnitudes
-                sed[~mask] = model[~mask]
+            sed = np.empty(11)
+            # keep the real observations
+            sed[mask] = obs[::2]
+            # fill in rest with modeled magnitudes
+            sed[~mask] = model[~mask]
             final_seds.append( sed )
             out_coords.append( object_coords[i] )
             out_modes.append( mode )
             out_errs.append( err )
+            models_used.append( (T,C) ) #( index or temp, offset )
     
-    return out_coords, final_seds, out_modes, out_errs
+    if return_models:
+        return out_coords, final_seds, out_modes, out_errs, models_used
+    else:
+        return out_coords, final_seds, out_modes, out_errs
 
 
 def _split_field( field_center, field_width, max_size, object_coords=None ):
@@ -598,9 +599,9 @@ def choose_model( obs, mask, models=MODELS ):
     best_model = models[1:][ i_best ] 
     # now add back in the zeropoint to get a model for the non-zerod observations
     C = Cs[i_best] + min(mags)
-    # return all magnitudes for best model, the temperature, and a quality metric for the best fit
+    # return all magnitudes for best model, the offset C, the temperature, and a quality metric for the best fit
     #  The quality metric is the average error between the best model and the observations
-    return (best_model[1:] + C, best_model[0], (sum_sqrs[i_best]/len(mags))**.5 )
+    return (best_model[1:] + C, C, best_model[0], (sum_sqrs[i_best]/len(mags))**.5 )
 
 
 def choose_model_reddening( obs, mask, reddening, models=MODELS ):
@@ -643,15 +644,16 @@ def choose_model_reddening( obs, mask, reddening, models=MODELS ):
     # now add back in the zeropoint to get a model for the non-zerod observations
     C = Cs[i_best] + min(mags)
     R = Rs[i_best]
-    # return all magnitudes for best model, the temperature, and a quality metric for the best fit
-    return (best_model[1:] + C + R*reddening, best_model[0], sum_sqrs[i_best])
+    # return all magnitudes for best model, the offset C, the temperature, and a quality metric for the best fit
+    return (best_model[1:] + C + R*reddening, C, best_model[0], sum_sqrs[i_best])
 
 
 ############################################
 # MAIN FUNCTIONS
 ############################################
 
-def catalog( field_center, field_width, object_coords=None, redden=False, savefile=None, max_size=1800.):
+def catalog( field_center, field_width, object_coords=None, 
+               redden=False, savefile=None, max_size=1800., return_models=False):
     '''
     Main cataloging function, this produces a catalog of all objects found in field.
     Requires records in 2MASS + (SDSS and/or USNOB1).
@@ -662,6 +664,7 @@ def catalog( field_center, field_width, object_coords=None, redden=False, savefi
                the script will not catalog fields in which there are no objects
     redden: boolean; account for galactic reddening
     savefile: optional; saves to specified file if present, otherwise returns answer
+    return_models: if True, returns the index (or temperature) of model used for each source
     
     NOTE: if requested field_width is greater than max_size (in arcsec),
           this splits up the request into 900-arcsec chunks, to save time.
@@ -671,16 +674,18 @@ def catalog( field_center, field_width, object_coords=None, redden=False, savefi
         centers, tile_width = _split_field( field_center, field_width, max_size, object_coords=object_coords )
         
         # go through each tile and accumulate the results:
-        object_coords, final_seds, modes, errors = [],[],[],[]
+        object_coords, final_seds, modes, errors, models = [],[],[],[],[]
         for i,center in enumerate(centers):
             print i,'of',len(centers)
-            oc, fs, ms, ers = produce_catalog( center, tile_width, redden=redden )
+            oc, fs, ms, ers, mods = produce_catalog( center, tile_width, redden=redden, return_models=True )
             object_coords += oc
             final_seds += fs
             modes += ms
             errors += ers
+            models += mods
     else:
-        object_coords, final_seds, modes, errors = produce_catalog( field_center, max(field_width), redden=redden )
+        object_coords, final_seds, modes, errors, models = \
+                         produce_catalog( field_center, max(field_width), redden=redden, return_models=True )
     
     # Done! Save to file, or return SEDs and coordinates
     if savefile:
@@ -694,7 +699,10 @@ def catalog( field_center, field_width, object_coords=None, redden=False, savefi
             fff.write( '\t'.join( map(str, object_coords[i]) ) + '\t' + '\t'.join( map(f_format, row) ) + '\t{}\t{}\n'.format(modes[i], f_format(errors[i])) )
         fff.close()
     else:
-        return np.array(object_coords), np.array(final_seds)
+        if return_models:
+            return np.array(object_coords), np.array(final_seds), models
+        else:
+            return np.array(object_coords), np.array(final_seds)
     
 
 

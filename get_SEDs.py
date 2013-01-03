@@ -9,7 +9,8 @@ Requires:
 
 TO DO:
 - split field in calculate_zeropoint to decrease running time
-- try running everything in Jy instead of flam, to see if that helps with fitting/precision errors
+- have some iterative way to throw out ONE datapoint if there is one
+  that fits poorly
 '''
 
 
@@ -25,7 +26,7 @@ from os.path import isfile
 from threading import Thread
 
 try:
-    MODELS = np.load( open('all_models_P.npy','r') )
+    MODELS = np.load( open('all_models_P_mag.npy','r') )
 except:
     raise IOError('cannot find models file')
 

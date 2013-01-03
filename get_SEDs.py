@@ -543,7 +543,7 @@ def _get_reddening( ra, dec, filters, dust_map=MAP_DICT ):
     return np.array( reddening )
 
 
-def _error_C(C, model, obs):
+def _error_C(C, model, obs, weights):
     '''
     C: number, a constant akin to distance modulus
     model: array-like, model mags
@@ -552,11 +552,12 @@ def _error_C(C, model, obs):
     returns: sum squared errors
     '''
     nm = model+C
-    return np.sum( (nm-obs)**2 )
+    return np.sum( weights*(nm-obs)**2 )
 
 
 def _error_C_reddening(pars, model, reddening, obs):
     '''
+     *** OBSOLETE, BUT KEPT FOR POSTERITY ***
     C: number, a constant akin to distance modulus
     R: scalar by which to add reddening
     model: array-like, model mags
@@ -599,7 +600,7 @@ def choose_model( obs, mask, models=MODELS ):
     #  Keep track of the sum_squared error, as returned by _error_C()
     sum_sqrs, Cs = [], []
     for model in models[1:]:
-        res = fmin_bfgs( _error_C, 0., args=(model[mask], zerod_mags), full_output=True, disp=False )
+        res = fmin_bfgs( _error_C, 0., args=(model[mask], zerod_mags, weights), full_output=True, disp=False )
         Cs.append(res[0][0])
         sum_sqrs.append(res[1])
         
@@ -609,11 +610,13 @@ def choose_model( obs, mask, models=MODELS ):
     C = Cs[i_best] + min(mags)
     # return all magnitudes for best model, the offset C, the temperature, and a quality metric for the best fit
     #  The quality metric is the average error between the best model and the observations
-    return (best_model[1:] + C, C, best_model[0], (sum_sqrs[i_best]/len(mags))**.5 )
+    sum_sqr_err = _error_C( C, best_model[mask], mags, np.ones_like(mags) )
+    return (best_model[1:] + C, C, best_model[0], (sum_sqr_err/len(mags))**.5 )
 
 
 def choose_model_reddening( obs, mask, reddening, models=MODELS ):
     '''
+     *** OBSOLETE, BUT KEPT FOR POSTERITY ***
     Find and return the best model for obs.
     Do this by fitting to all magnitudes weighted by error.
     

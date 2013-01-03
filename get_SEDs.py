@@ -9,6 +9,7 @@ Requires:
 
 TO DO:
 - split field in calculate_zeropoint to decrease running time
+- try running everything in Jy instead of flam, to see if that helps with fitting/precision errors
 '''
 
 

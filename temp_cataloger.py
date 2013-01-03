@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 
 
-def compare_catalogs( source_cat, synth_cat, bands=['g','r','i','z','y'] ):
+def compare_catalogs( source_cat, synth_cat, bands=['g','r','i','z','y'], err_cut=.5 ):
     '''
     Plot histograms of the errors when estimating source magnitudes
     in grizy bands using USNOB+2MASS.
@@ -34,7 +34,7 @@ def compare_catalogs( source_cat, synth_cat, bands=['g','r','i','z','y'] ):
     tile_width = 2.778e-4*tile_width #convert to degrees
     
     matched_mags, matched_errs = [],[]
-    for i,center in enumerate(centers):
+    for i,center in enumerate(centers[:2]):
         print 'field',i,'of',len(centers)
 
         # find all synths within the field
@@ -56,18 +56,25 @@ def compare_catalogs( source_cat, synth_cat, bands=['g','r','i','z','y'] ):
     
     # now go through and build lists of all of the errors
     errors = [ [],[],[],[],[] ]
+    model_fit_errs = []
     band_map = {0:'g', 1:'r', 2:'i', 3:'z', 4:'y'}
     
-    model_err = []
-    for match in matched_mags:
-        for i,band in enumerate(errors):
-            if match[1][i] == 99.:
+    for i,match in enumerate(matched_mags):
+        #if matched_errs[i] > err_cut:
+        #    # fails error cut --- ignore it.
+        #    continue
+        for j,band in enumerate(errors):
+            if match[1][j] == 99.:
                 # wasn't actually observed
-                continue
-            band.append( match[0][i] - match[1][i] )
+                band.append( 99. )
+            else:
+                band.append( match[0][j] - match[1][j] )
             # synthetic magnitude - observed magnitude
+        model_fit_errs.append( matched_errs[i] )
+
             
     # now, we plot them
+    prefix = 'catalog_proc/CK_models/cut_hists/'
     mybins = np.linspace(-2, 2, 50)
     for i,band in enumerate(errors):
         if not band: continue  # no observations in that band at all
@@ -76,9 +83,17 @@ def compare_catalogs( source_cat, synth_cat, bands=['g','r','i','z','y'] ):
         plt.xlabel( band_map[i]+': synthetic - observed')
         plt.ylabel('count')
         plt.title( band_map[i] + '--- Mean error: ' + str(np.mean(band)) )
-        plt.savefig( band_map[i] + source_cat.split('/')[1].split('.')[0] + '.png')
+        #plt.savefig( prefix + band_map[i] + source_cat.split('/')[-1].split('.')[0] + '.png')
+    
+        #now plot scatterplot of model errors vs. true errors
+        plt.figure()
+        band = np.array(band)
+        model_fit_errs = np.array(model_fit_errs)
+        plt.scatter( band[band!=99.], model_fit_errs[band!=99.], alpha=.5 )
+        plt.xlabel( 'true errors' )
+        plt.ylabel( 'model fit errors' )
+        plt.title( '{}'.format(band_map[i]) )
         plt.show()
-        plt.close()
     
     
     
@@ -123,13 +138,13 @@ if __name__ == '__main__':
     saving histograms of the determined errors.
     '''
     import os
-    files = os.listdir('catalogs/')
+    directory = 'catalog_proc/CK_models/'
+    files = os.listdir(directory)
     synths = [f for f in files if 'synth' in f]
     sources = [f for f in files if 'sources_new.catalog' in f]
     
     for i in range(len(synths)):
         print '*'*20
-        print 'working on',sources[i]
+        print 'working on',sources[i], synths[i]
         print '*'*20
-        compare_catalogs( 'catalogs/'+sources[i], 'catalogs/'+synths[i] )
-
+        compare_catalogs( directory+sources[i], directory+synths[i] )

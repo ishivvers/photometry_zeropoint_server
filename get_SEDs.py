@@ -56,7 +56,14 @@ MAP_DICT['Filters'] = {'u':4.239, 'g':3.303, 'r':2.285, 'i':1.698,
                        'z':1.263, 'y':1.058, 'B':4.315, 'R':2.673,
                        'J':0.709, 'H':0.449, 'K':0.302}
 
-ALL_FILTERS = ['u','g','r','i','z','y','B','R','J','H','K']
+ALL_FILTERS = np.array(['u','g','r','i','z','y','B','R','J','H','K'])
+# central wavelength (AA) and flux zeropoint (erg/s/cm^2/A, i.e. flam)
+FILTER_PARAMS =  {'u': (3551., 8.5864e-9), 'g': (4686., 4.8918e-9),
+                  'r': (6165., 2.8473e-9), 'i': (7481., 1.9367e-9),
+                  'z': (8931., 1.3564e-9), 'y': (10091., 1.0696e-9),
+                  'B': (4400., 6.6000e-9),  'R':(6500., 2.1900e-9),
+                  'J':(12350., 3.1353e-10), 'H':(16620., 1.1121e-10),
+                  'K':(21590., 4.2909e-11)}
 
 ############################################
 # CATALOG INTERFACE FUNCTIONS
@@ -341,7 +348,7 @@ def identify_matches( queried_stars, found_stars, match_radius=1. ):
     return matches
 
 
-def produce_catalog( field_center, field_width, err_cut=2., redden=True, return_models=False ):
+def produce_catalog( field_center, field_width, err_cut=.5, redden=True, return_models=False ):
     '''
     Create a catalog of all objects found in field.
     Requires records in 2MASS + (SDSS and/or USNOB1).
@@ -404,7 +411,7 @@ def produce_catalog( field_center, field_width, err_cut=2., redden=True, return_
         mask = np.array(mask).astype(bool)
         
         if redden:
-            reddening = _get_reddening( ra,dec, ALL_FILTERS )
+            reddening = get_reddening( ra,dec, ALL_FILTERS )
             # de-redden the observations before comparing
             #  to the models
             obs[::2] -= reddening[mask]
@@ -501,7 +508,7 @@ def _find_field( star_coords, extend=.0015 ):
 # MODEL FITTING FUNCTIONS
 ############################################
 
-def _get_reddening( ra, dec, filters, dust_map=MAP_DICT ):
+def get_reddening( ra, dec, filters, dust_map=MAP_DICT ):
     '''
     returns reddening for filters at ra,dec as 
     defined by the dust_map_dict
@@ -535,117 +542,81 @@ def _get_reddening( ra, dec, filters, dust_map=MAP_DICT ):
     return np.array( reddening )
 
 
-def _error_C(C, model, obs):
+def _error_C(C, model, obs, weights ):
     '''
-    C: number, a constant akin to distance modulus
-    model: array-like, model mags
-    real: array-like, observed mags
-    
+    C: number, a constant
+    model, obs, weights: numpy arrays
     returns: sum squared errors
     '''
-    nm = model+C
-    return np.sum( (nm-obs)**2 )
+    nm = model*C
+    return np.sum( weights*(nm-obs)**2 )
 
-
-def _error_C_reddening(pars, model, reddening, obs):
+def mag2flam( magnitudes, bands ):
     '''
-    C: number, a constant akin to distance modulus
-    R: scalar by which to add reddening
-    model: array-like, model mags
-    reddening: the reddening array for model (mags)
-    real: array-like, observed mags
-    
-    returns: sum squared errors
+    Converts magnitudes to flam (erg/s/cm^2/A).
     '''
-    C,R = pars
-    nm = model + C + R*reddening
-    return np.sum( (nm-obs)**2 )
+    flam = np.empty_like(magnitudes)
+    for i,b in enumerate(bands):
+        f0 = FILTER_PARAMS[b][1]
+        flam[i] = f0*10**(-.4*magnitudes[i])
+    return flam
 
+def flam2mag( flams, bands ):
+    '''
+    Converts flam back to magnitudes.
+    '''
+    mags = np.empty_like(flams)
+    for i,b in enumerate(bands):
+        f0 = FILTER_PARAMS[b][1]
+        mags[i] = -2.5*np.log10( flams[i]/f0 )
+    return mags
 
 def choose_model( obs, mask, models=MODELS ):
     '''
     Find and return the best model for obs.
     Do this by fitting to all magnitudes weighted by error.
     
-    Returns: model, temperature, quality_parameter
+    Returns: model, C, temperature, quality_parameter
     
-    obs: an array of the observed magnitudes and errors, in
+    obs: an array of the observations and errors (in mags), in
            order as defined by the mode key (see below)
     mask: defines what colors to use in the fit, i.e. what observations exist
            in order: [u,g,r,i,z,y,B,R,J,H,K]
-    models: an array of modeled SEDs, where 0th entry is temperature
-             of the model, and the rest are magnitudes
+    models: an array of modeled SEDs, where 0th entry is temperature or index
+             of the model, and the rest are brightnesses (in flam)
     '''
     # mask is an array used to choose which modeled magnitudes
     #  correspond to the included observations.
-    #  Note: I append a leading zero to ignore the temperature of the model
+    #  Note: I prepend a zero to ignore the temperature/index of the model
     #   (saved in position 0 for all models)
-    mask = np.hstack( (np.array([False]), np.array(mask).astype(bool)) )
+    model_mask = np.hstack( (np.array([False]), np.array(mask).astype(bool)) )
     
-    mags = obs[::2]
-    zerod_mags = mags - min(mags) # recenter to compare to models
+    flams = mag2flam( obs[::2], ALL_FILTERS[mask] )
     weights = 1./obs[1::2]
-    #weights = np.ones(len(obs[1::2])) #try flat weights
     
     # Go through all models and choose the one with the most similar SED
     #  Keep track of the sum_squared error, as returned by _error_C()
     sum_sqrs, Cs = [], []
+    # inside the loop, we'll use the below to estimate a value for C
+    f0 = FILTER_PARAMS[ ALL_FILTERS[mask][0] ][1]
     for model in models[1:]:
-        res = fmin_bfgs( _error_C, 0., args=(model[mask], zerod_mags), full_output=True, disp=False )
+        # estimate C
+        f_mod = model[1:][mask][-2]
+        C_est = (f0/f_mod)*10**(-.4*obs[::2][-2]) # using Mag = -2.5Log[ (C*f_model)/f0 ] for Hband
+        res = fmin_bfgs( _error_C, C_est, args=(model[1:][mask], flams, weights), full_output=True, disp=False )
         Cs.append(res[0][0])
         sum_sqrs.append(res[1])
+        import pdb; pdb.set_trace()
         
     i_best = np.argmin(sum_sqrs)
-    best_model = models[1:][ i_best ] 
-    # now add back in the zeropoint to get a model for the non-zerod observations
-    C = Cs[i_best] + min(mags)
-    # return all magnitudes for best model, the offset C, the temperature, and a quality metric for the best fit
-    #  The quality metric is the average error between the best model and the observations
-    return (best_model[1:] + C, C, best_model[0], (sum_sqrs[i_best]/len(mags))**.5 )
-
-
-def choose_model_reddening( obs, mask, reddening, models=MODELS ):
-    '''
-    Find and return the best model for obs.
-    Do this by fitting to all magnitudes weighted by error.
-    
-    Returns: model, temperature, quality_parameter
-    
-    obs: an array of the observed magnitudes and errors, in
-           order as defined by the mode key (see below)
-    mask: defines what colors to use in the fit, i.e. what observations exist
-           in order: [u,g,r,i,z,y,B,R,J,H,K]
-    reddening: an array of reddening corrections for these coordinates (mags)
-    models: an array of modeled SEDs, where 0th entry is temperature
-             of the model, and the rest are magnitudes
-    '''
-    # mask is an array used to choose which modeled magnitudes
-    #  correspond to the included observations.
-    #  Note: I append a leading zero to ignore the temperature of the model
-    #   (saved in position 0 for all models)
-    mask = np.hstack( (np.array([False]), np.array(mask).astype(bool)) )
-    
-    mags = obs[::2]
-    zerod_mags = mags - min(mags) # recenter to compare to models
-    weights = 1./obs[1::2]
-    #weights = np.ones(len(obs[1::2])) #try flat weights
-    
-    # Go through all models and choose the one with the most similar SED
-    #  Keep track of the sum_squared error
-    sum_sqrs, Cs, Rs = [], [], []
-    for model in models[1:]:
-        res = fmin_l_bfgs_b( _error_C_reddening, (0.,1.), args=(model[mask], reddening[mask[1:]], zerod_mags),
-                             bounds=((None,None), (0., 1.2)), disp=0, approx_grad=True )
-        Cs.append(res[0][0])
-        Rs.append(res[0][1])
-        sum_sqrs.append(res[1])
-    i_best = np.argmin(sum_sqrs)
-    best_model = models[1:][ i_best ] 
-    # now add back in the zeropoint to get a model for the non-zerod observations
-    C = Cs[i_best] + min(mags)
-    R = Rs[i_best]
-    # return all magnitudes for best model, the offset C, the temperature, and a quality metric for the best fit
-    return (best_model[1:] + C + R*reddening, C, best_model[0], sum_sqrs[i_best])
+    C = Cs[i_best]
+    best_model = models[1:][i_best]
+    best_model_mags = flam2mag( best_model[1:]*C, ALL_FILTERS )
+    # return all magnitudes for best model, the offset C, the temperature,
+    #  and a quality metric for the best fit.
+    #  The quality metric is the average error (in mags) between the best model and the observations
+    sum_sqr_mag_err = _error_C( C, best_model_mags[mask], obs[::2], np.ones_like(obs[::2]) )
+    return (best_model_mags, C, best_model[0], (sum_sqr_mag_err/len(obs[::2]))**.5 )
 
 
 ############################################

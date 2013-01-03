@@ -108,10 +108,7 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=False, size=900., plot=True
             modes.append( 0 )
             band_mags.append( band )
             
-            #gmr0.append( obj[4] - obj[6] )
-            #jmk0.append( mass[i_mass][2] - mass[i_mass][-2] )
-
-
+    
     # now fit a model to each object, and construct the final SED,
     #  without including the relevant band.  Determine errors between
     #  predicted band and actual. Build an array of sample SEDs of
@@ -136,13 +133,21 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=False, size=900., plot=True
         mask = np.array(mask).astype(bool)
         
         if redden:
-            reddening = _get_reddening( ra,dec, ALL_FILTERS )
-            model, T, err = choose_model_reddening( obs, mask, reddening )
-        else:
-            model, T, err = choose_model( obs, mask )
-        if err > 2.: continue # impose a quality-of-fit cut
+            reddening = get_reddening( ra,dec, ALL_FILTERS )
+            # de-redden the observations before comparing
+            #  to the models
+            obs[::2] -= reddening[mask]
+        model, C, T, err = choose_model( obs, mask )
+        print 'T:',T
         
-        # compare calculated z-mag to observed
+        if redden:
+            # re-redden the model and obs to match
+            obs[::2] += reddening[mask]
+            model += reddening
+            
+        #if err > .5: continue # impose a quality-of-fit cut
+        
+        # compare calculated mag to observed
         true_band = band_mags[i]
         guess_band = model[i_band]
         error = true_band - guess_band
@@ -154,6 +159,7 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=False, size=900., plot=True
             errs1.append(err)
             
         if plot:
+            '''
             # if this is a particularly egregrious one, plot it up
             if abs(error) > 1.:
                 plt.figure()
@@ -164,7 +170,7 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=False, size=900., plot=True
                 ax.scatter( MODELS[0][1:6][sdss_mask[::2]], sdss_mags[i][::2], c='r', marker='x', s=20 )
                 ax.invert_yaxis()
                 ax.set_title( 'Terrible fit at {}'.format(object_coords[i]) )
-            
+            '''
             # plot up the SEDs themselves
             ax = None
             if mode == 0 and (i_ax0 < len(axs_0)):
@@ -256,7 +262,7 @@ def construct_SED( ra, dec, redden=False ):
     mask = np.array(mask).astype(bool)
     
     if redden:
-        reddening = _get_reddening( ra,dec, ALL_FILTERS )
+        reddening = get_reddening( ra,dec, ALL_FILTERS )
         model, T, err = choose_model_reddening( obs, mask, reddening )
     else:
         model, T, err = choose_model( obs, mask )

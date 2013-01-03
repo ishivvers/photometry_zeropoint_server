@@ -139,7 +139,7 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=False, size=900., plot=True
             reddening = _get_reddening( ra,dec, ALL_FILTERS )
             model, T, err = choose_model_reddening( obs, mask, reddening )
         else:
-            model, T, err = choose_model( obs, mask )
+            model, C, T, err = choose_model( obs, mask )
         if err > 2.: continue # impose a quality-of-fit cut
         
         # compare calculated z-mag to observed

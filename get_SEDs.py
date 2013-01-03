@@ -9,6 +9,8 @@ Requires:
 
 TO DO:
 - split field in calculate_zeropoint to decrease running time
+- have some iterative way to throw out ONE datapoint if there is one
+  that fits poorly
 '''
 
 
@@ -24,7 +26,7 @@ from os.path import isfile
 from threading import Thread
 
 try:
-    MODELS = np.load( open('all_models_P.npy','r') )
+    MODELS = np.load( open('all_models_P_mag.npy','r') )
 except:
     raise IOError('cannot find models file')
 
@@ -57,6 +59,12 @@ MAP_DICT['Filters'] = {'u':4.239, 'g':3.303, 'r':2.285, 'i':1.698,
                        'J':0.709, 'H':0.449, 'K':0.302}
 
 ALL_FILTERS = ['u','g','r','i','z','y','B','R','J','H','K']
+FILTER_PARAMS =  {'u': (3551., 8.5864e-9), 'g': (4686., 4.8918e-9),
+                  'r': (6165., 2.8473e-9), 'i': (7481., 1.9367e-9),
+                  'z': (8931., 1.3564e-9), 'y': (10091., 1.0696e-9),
+                  'B': (4400., 6.6000e-9),  'R':(6500., 2.1900e-9),
+                  'J':(12350., 3.1353e-10), 'H':(16620., 1.1121e-10),
+                  'K':(21590., 4.2909e-11)}
 
 ############################################
 # CATALOG INTERFACE FUNCTIONS

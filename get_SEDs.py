@@ -594,7 +594,6 @@ def choose_model( obs, mask, models=MODELS ):
     mags = obs[::2]
     zerod_mags = mags - min(mags) # recenter to compare to models
     weights = 1./obs[1::2]
-    #weights = np.ones(len(obs[1::2])) #try flat weights
     
     # Go through all models and choose the one with the most similar SED
     #  Keep track of the sum_squared error, as returned by _error_C()
@@ -605,7 +604,23 @@ def choose_model( obs, mask, models=MODELS ):
         sum_sqrs.append(res[1])
         
     i_best = np.argmin(sum_sqrs)
-    best_model = models[1:][ i_best ] 
+    best_model = models[1:][ i_best ]
+    
+    # if there's one point more than <max_diff> away from best model, try again without that point
+    #  (set that weight to zero)
+    if max( np.abs(best_model[mask] - zerod_mags) ) > 1.:
+        i_max = np.argmax(np.abs(best_model[mask] - zerod_mags))
+        weights[i_max] = 0.
+        # Go through all models again, with new weights
+        sum_sqrs, Cs = [], []
+        for model in models[1:]:
+            res = fmin_bfgs( _error_C, 0., args=(model[mask], zerod_mags, weights), full_output=True, disp=False )
+            Cs.append(res[0][0])
+            sum_sqrs.append(res[1])
+
+        i_best = np.argmin(sum_sqrs)
+        best_model = models[1:][ i_best ]
+    
     # now add back in the zeropoint to get a model for the non-zerod observations
     C = Cs[i_best] + min(mags)
     # return all magnitudes for best model, the offset C, the temperature, and a quality metric for the best fit

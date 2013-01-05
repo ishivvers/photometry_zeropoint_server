@@ -26,7 +26,11 @@ from os.path import isfile
 from threading import Thread
 
 try:
-    MODELS = np.load( open('all_models_P_mag.npy','r') )
+    MODELS = np.load( open('all_models_P.npy','r') )
+    # rezero so that K=0 for all models (makes fitting faster)
+    for row in MODELS[1:]:
+        row[1:] = row[1:] - row[-1]
+    
 except:
     raise IOError('cannot find models file')
 
@@ -400,7 +404,7 @@ def produce_catalog( field_center, field_width, err_cut=2., redden=True, return_
     
     # now fit a model to each object, and construct the final SED,
     #  filling in missing observations with synthetic photometry.
-    final_seds, out_coords, out_modes, out_errs, models_used = [], [], [], [], []
+    final_seds, out_coords, out_modes, fit_errs, models_and_errors = [], [], [], [], []
     for i, obs in enumerate(object_mags):
         mode = modes[i]
         # the masks show, in order, which bands are included
@@ -428,20 +432,24 @@ def produce_catalog( field_center, field_width, err_cut=2., redden=True, return_
                 model += reddening
                 
             sed = np.empty(11)
+            full_errs = np.empty(11)
             # keep the real observations
             sed[mask] = obs[::2]
+            full_errs[mask] = obs[1::2]
             # fill in rest with modeled magnitudes
             sed[~mask] = model[~mask]
+            full_errs[~mask] = err
+            
             final_seds.append( sed )
             out_coords.append( object_coords[i] )
             out_modes.append( mode )
-            out_errs.append( err )
-            models_used.append( (T,C) ) #( index or temp, offset )
+            fit_errs.append( err )
+            models_and_errors.append( (T,full_errs) ) #( index or temp, array of errors )
     
     if return_models:
-        return out_coords, final_seds, out_modes, out_errs, models_used
+        return out_coords, final_seds, out_modes, fit_errs, models_and_errors
     else:
-        return out_coords, final_seds, out_modes, out_errs
+        return out_coords, final_seds, out_modes, fit_errs
 
 
 def _split_field( field_center, field_width, max_size, object_coords=None ):
@@ -485,7 +493,7 @@ def _split_field( field_center, field_width, max_size, object_coords=None ):
     return centers, w_tile/a2d
 
 
-def _find_field( star_coords, extend=.0015 ):
+def find_field( star_coords, extend=.0015 ):
     '''
     determine the best field for a list of star coordinates,
     so we can perform only a single query.
@@ -726,7 +734,7 @@ def catalog( field_center, field_width, object_coords=None,
         fff.close()
     else:
         if return_models:
-            return np.array(object_coords), np.array(final_seds), models
+            return np.array(object_coords), np.array(final_seds), models, modes
         else:
             return np.array(object_coords), np.array(final_seds)
     
@@ -776,7 +784,7 @@ def zeropoint( input_file ):
     in_data = np.loadtxt( input_file )
     input_coords = in_data[:, :2]
     input_mags = in_data[:, 2]
-    field_center, field_width = _find_field( input_coords )
+    field_center, field_width = find_field( input_coords )
     idstring, band = input_file.split('_')[:2]
     
     # quick test whether field is in SDSS:

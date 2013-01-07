@@ -353,7 +353,7 @@ def identify_matches( queried_stars, found_stars, match_radius=1. ):
     return matches
 
 
-def produce_catalog( field_center, field_width, err_cut=2., redden=True, return_models=False ):
+def produce_catalog( field_center, field_width, err_cut=.5, redden=True, return_models=False ):
     '''
     Create a catalog of all objects found in field.
     Requires records in 2MASS + (SDSS and/or USNOB1).
@@ -740,7 +740,7 @@ def catalog( field_center, field_width, object_coords=None,
     
 
 
-def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, sigma_cut=2. ):
+def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, sigma_cut=2., return_array=False ):
     '''
     Calculate the zeropoint for a set of input stars and set of catalog stars.
     
@@ -763,7 +763,11 @@ def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, sigm
         zp_estimates.append( matched_catalogs[i] - inst_mag )
     zp = np.array(zp_estimates)
     zp_cut = zp[ np.abs(zp-np.mean(zp)) < 2*np.std(zp) ]
-    return np.mean(zp_cut)
+    if not return_array:
+        return np.mean(zp_cut)
+    else:
+        return np.mean(zp_cut), zp_cut
+        
 
 
 def zeropoint( input_file ):

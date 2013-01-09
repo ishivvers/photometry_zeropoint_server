@@ -416,7 +416,7 @@ def produce_catalog( field_center, field_width, err_cut=.5, redden=True, return_
         mask = np.array(mask).astype(bool)
         
         if redden:
-            reddening = _get_reddening( ra,dec, ALL_FILTERS )
+            reddening = get_reddening( ra,dec, ALL_FILTERS )
             # de-redden the observations before comparing
             #  to the models
             obs[::2] -= reddening[mask]
@@ -517,7 +517,7 @@ def find_field( star_coords, extend=.0015 ):
 # MODEL FITTING FUNCTIONS
 ############################################
 
-def _get_reddening( ra, dec, filters, dust_map=MAP_DICT ):
+def get_reddening( ra, dec, filters, dust_map=MAP_DICT ):
     '''
     returns reddening for filters at ra,dec as 
     defined by the dust_map_dict
@@ -740,7 +740,7 @@ def catalog( field_center, field_width, object_coords=None,
     
 
 
-def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, sigma_cut=2., return_array=False ):
+def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, return_array=False ):
     '''
     Calculate the zeropoint for a set of input stars and set of catalog stars.
     

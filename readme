@@ -23,8 +23,6 @@ REQUIRES commmand line tools findsdss8, find2mass, findusnob1
  - available from http://cdsarc.u-strasbg.fr/doc/cdsclient.html
 
 
-TO DO:
-- move to pickles, replace temp with index, and map to type
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 EXAMPLES:
@@ -66,7 +64,46 @@ run:
 to do:
 
 + Compare results with results from standard-star observations.
-+ Verify acceptable radii for matches
 
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+Results from error analysis:
+
+-- z-band -- 
+SDSS:
+ mean err = .04
+ avg err  = .10
+USNOB:
+ mean err = .04
+ avg err = .15
+
+-- i-band -- 
+USNOB:
+ mean err = .08
+ avg err = .16
+
+-- r-band --
+USNOB:
+ mean err = .14
+ avg err = .17
+SUBTRACT .114:
+ mean err = .10
+ avg err = .17
+
+-- g-band --
+USNOB:
+ mean err = .21
+ avg err = .23
+SUBTRACT .227:
+ mean err = .14
+ avg err = .23
+
+-- u-band --
+USNOB:
+ mean err = .24
+ avg err = .41
+
+-- B/R-band --
+bad
+
 

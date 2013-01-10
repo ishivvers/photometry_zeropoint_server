@@ -394,7 +394,13 @@ def produce_plots_for_web( coords, band_name='z', redden=False, size=1800. ):
             # compare calculated mag to observed
             true_band = band_mags[i]
             guess_band = model[i_band]
-            error = true_band - guess_band
+            # add in the hacky re-centers of g,r bands for usnob (determined by error analysis)
+            if band_name == 'g' and mode == 1:
+                guess_band += .227  # g
+            elif band_name == 'r' and mode == 1:
+                guess_band += .114  # r
+            
+            error = true_band - guess_band  #if error>0, I underestimate.
             if mode == 0:
                 errors_0.append(error)
                 errs0.append(err)
@@ -406,8 +412,8 @@ def produce_plots_for_web( coords, band_name='z', redden=False, size=1800. ):
         e0_cut = e0[ np.abs(e0-np.mean(e0)) < 2*np.std(e0) ]
         e1 = np.array(errors_1)
         e1_cut = e1[ np.abs(e1-np.mean(e1)) < 2*np.std(e1) ]
-        out_errs_0 += list(e0_cut)
-        out_errs_1 += list(e1_cut)
+        out_errs_0.append( (np.mean(e0_cut), np.std(e0_cut)) )
+        out_errs_1.append( (np.mean(e1_cut), np.std(e1_cut)) )
         
         # now plot a histogram for each type
         plt.figure(1)
@@ -425,7 +431,7 @@ def produce_plots_for_web( coords, band_name='z', redden=False, size=1800. ):
     plt.ylabel('Normalized count')
     leg = plt.legend(loc='best', fancybox=True)
     leg.get_frame().set_alpha(0.0)
-    plt.savefig("sdss_errs.png", transparent=True)
+    plt.savefig("sdss_errs_{}.png".format(band_name), transparent=True)
     
     plt.figure(2)
     plt.title('USNOB1+2MASS')
@@ -433,9 +439,132 @@ def produce_plots_for_web( coords, band_name='z', redden=False, size=1800. ):
     plt.ylabel('Normalized count')
     leg = plt.legend(loc='best', fancybox=True)
     leg.get_frame().set_alpha(0.0)
-    plt.savefig("usnob_errs.png", transparent=True)
+    plt.savefig("usnob_errs_{}.png".format(band_name), transparent=True)
     plt.show()
     return out_errs_0, out_errs_1
 
 
-#(210., 50.), (210., 20.), (185., 30.), (150., 50.), (150., 20.)
+def produce_plots_for_web2( coords, redden=False, size=1800. ):
+    '''
+    Test the error accrued for all sources in a field when estimating 
+     USNOB photometry from SDSS values.
+
+    Run this on any field within the SDSS footprint
+
+    ra,dec: lists of coordinates in decimal degrees
+    band: USNOB passband to derive errors for
+    redden: if True, account for galactic reddening when modeling photometry
+    size: size of field to query around each ra, dec (arseconds)
+    '''
+
+    out_errs_B, out_errs_R = [],[]
+    for coord in coords:
+        ra,dec = coord
+        mass, sdss, usnob = query_all(ra, dec, boxsize=size)
+
+        object_mags = []
+        band_mags = []
+        object_coords = []
+
+        # match sdss, usnob objects to 2mass objects
+        if sdss != None:
+            sdss_matches = identify_matches( mass[:,:2], sdss[:,:2] )
+            usnob_matches = identify_matches( mass[:,:2], usnob[:,:2] )
+        else:
+            raise Exception('Must run this for coordinates in SDSS footprint!')
+
+        # Go through 2MASS objects and assemble a catalog
+        #  of all objects present in multiple catalogs
+        for i,obj in enumerate(mass):
+            if sdss_matches[i] != None and usnob_matches[i] !=None:
+                i_sdss = sdss_matches[i]
+                i_usnob = usnob_matches[i]
+                # fit to SDSS+2MASS
+                obs = np.hstack( (sdss[i_sdss][2:], obj[2:]) )
+                band = usnob[i_usnob][2:][::2] # keep track of the observed mags
+                object_mags.append( obs )
+                object_coords.append( obj[:2] )
+                band_mags.append( band )
+
+        # now fit a model to each object, and construct the final SED,
+        #  without including the relevant band.  Determine errors between
+        #  predicted band and actual.
+        errorsB, errorsR = [],[]
+        for i, obs in enumerate(object_mags):
+            mask = [1,1,1,1,1,0,0,0,1,1,1]
+            mask = np.array(mask).astype(bool)
+
+            if redden:
+                reddening = get_reddening( ra,dec, ALL_FILTERS )
+                # de-redden the observations before comparing
+                #  to the models
+                obs[::2] -= reddening[mask]
+            model, C, T, err = choose_model( obs, mask )
+
+            if err > .5: continue # impose a quality-of-fit cut
+
+            if redden:
+                # re-redden the model and obs to match
+                obs[::2] += reddening[mask]
+                model += reddening
+
+            # compare calculated mag to observed
+            true_bands = band_mags[i]
+            guess_bands = model[6:8] 
+            errorsB.append(true_bands[0] - guess_bands[0])
+            errorsR.append(true_bands[1] - guess_bands[1])
+
+        eR = np.array(errorsR)
+        eR_cut = eR[ np.abs(eR-np.mean(eR)) < 2*np.std(eR) ]
+        eB = np.array(errorsB)
+        eB_cut = eB[ np.abs(eB-np.mean(eB)) < 2*np.std(eB) ]
+        
+        out_errs_B.append( (np.mean(eB_cut), np.std(eB_cut)) )
+        out_errs_R.append( (np.mean(eR_cut), np.std(eR_cut)) )
+
+        # now plot a histogram for each type
+        plt.figure(1)
+        alph = .75
+        bns = map( lambda x: round(x,2), np.linspace(-1, 1, 20) )
+        plt.hist( eB_cut, bins=bns, alpha=alph, linewidth=3, histtype='step', normed=True, label='{}, {}'.format(ra,dec) )
+
+        plt.figure(2)
+        plt.hist( eR_cut, bins=bns, alpha=alph, linewidth=3, histtype='step', normed=True, label='{}, {}'.format(ra,dec) )
+
+
+    plt.figure(1)
+    plt.title('SDSS and 2-MASS')
+    plt.xlabel('Error in B-band (mag)')
+    plt.ylabel('Normalized count')
+    leg = plt.legend(loc='best', fancybox=True)
+    leg.get_frame().set_alpha(0.0)
+    plt.savefig("sdss_errs_B.png", transparent=True)
+
+    plt.figure(2)
+    plt.title('SDSS and 2-MASS')
+    plt.xlabel('Error in R-band (mag)')
+    plt.ylabel('Normalized count')
+    leg = plt.legend(loc='best', fancybox=True)
+    leg.get_frame().set_alpha(0.0)
+    plt.savefig("sdss_errs_R.png", transparent=True)
+    plt.show()
+    return out_errs_B, out_errs_R
+
+
+coords = [(230., 50.), (230., 30.), (230., 10.),
+          (185., 50.), (185., 30.), (185., 10.),
+          (140., 50.), (145., 30.), (145., 10.)]
+
+coords2= [(210., 50.), (210., 20.), (185., 30.),
+          (150., 50.), (150., 20.)]
+
+'''
+To do:
+ - run through set of 9 random coordinates, and produce plots for each color
+   and each coordinate.
+ - see if there is a coherent value I can fudge-factor correct (in choose_model)
+   for each band!
+ - update info page with errors per color, and a plot of g alongside z
+ - see if I have a version of the SEXtractor output with more sources
+
+'''

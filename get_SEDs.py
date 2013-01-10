@@ -440,6 +440,11 @@ def produce_catalog( field_center, field_width, err_cut=.5, redden=True, return_
             sed[~mask] = model[~mask]
             full_errs[~mask] = err
             
+            # put in the hack to recenter g,r (if in mode 1)
+            if mode == 1:
+                sed[1] += .227 #g
+                sed[2] += .114 #r
+            
             final_seds.append( sed )
             out_coords.append( object_coords[i] )
             out_modes.append( mode )
@@ -631,6 +636,7 @@ def choose_model( obs, mask, models=MODELS ):
     
     # now add back in the zeropoint to get a model for the non-zerod observations
     C = Cs[i_best] + min(mags)
+    
     # return all magnitudes for best model, the offset C, the temperature, and a quality metric for the best fit
     #  The quality metric is the average error between the best model and the observations
     sum_sqr_err = _error_C( C, best_model[mask], mags, np.ones_like(mags) )

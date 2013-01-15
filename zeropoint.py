@@ -2,12 +2,17 @@
 Command-line tool providing an interface to the 
  get_SEDs.py library.
 
+Usage:
+ python zeropoint.py <input_filename> <passband> <output_filename>
 '''
-from get_SEDs import *
+
+from get_SEDs_minimal import *
 from sys import argv
 
 if __name__ == '__main__':
-    filepath = argv[1]
-    zp = zeropoint( filepath )
+    in_file  = argv[1]
+    passband = argv[2].lower()
+    out_file = argv[3]
     
-    print zp
+    zp, mad = zeropoint( in_file, passband, output_file=out_file )
+    print zp, mad

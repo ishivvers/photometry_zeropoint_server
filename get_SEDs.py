@@ -1,16 +1,11 @@
 '''
-Library to produce a catalog of fully-populated SEDs for
-any arbitrary location on the sky, using a combination 
+Library to produce a catalog of fully-populated SEDs and calculating
+zeropoints for any arbitrary location on the sky, using a combination 
 of online catalogs (USNOB1, 2MASS, SDSS) and synthetic photometry.
 
 Requires:
 - all_models.npy, a file produced by assemble_models.py
-- Schlegel et al. dust extiction maps in a folder named dust_maps
 
-to do:
-- check out get_seds_minimal to see what changes 
-  should be adopted here.
-- implement changes from group discussion, 01/14 (see global to do)
 '''
 
 
@@ -18,57 +13,30 @@ to do:
 # IMPORTS
 ############################################
 import numpy as np
-import matplotlib.pyplot as plt
 from subprocess import Popen, PIPE
-from scipy.optimize import fmin_bfgs, fmin_l_bfgs_b
-import pyfits
+from scipy.optimize import fmin_bfgs
 from os.path import isfile
 from threading import Thread
+from time import time, strftime
+
 
 try:
     MODELS = np.load( open('all_models_P.npy','r') )
     # rezero so that K=0 for all models (makes fitting faster)
     for row in MODELS[1:]:
         row[1:] = row[1:] - row[-1]
-    
 except:
     raise IOError('cannot find models file')
 
-try:
-    from _libastro import eq_gal
-except:
-    raise Exception('cannot find _libastro.so')
-
-# open the dust extinction maps
-try:
-    hdu = pyfits.open('dust_maps/SFD_dust_1024_ngp.fits')[0]
-    nsgp_n = hdu.header['LAM_NSGP']
-    scale_n = hdu.header['LAM_SCAL']
-    map_n = hdu.data
-    hdu = pyfits.open('dust_maps/SFD_dust_1024_sgp.fits')[0]
-    nsgp_s = hdu.header['LAM_NSGP']
-    scale_s = hdu.header['LAM_SCAL']
-    map_s = hdu.data
-    MAP_DICT = {}
-    MAP_DICT['N'] = [map_n, nsgp_n, scale_n]
-    MAP_DICT['S'] = [map_s, nsgp_s, scale_s]
-except:
-    raise IOError('cannot find/open dust maps')
-
-# Include the E(B-V)-to-mag mapping for all filters,
-#  from Schlafly & Finkbeiner 2011
-#  Using UKIRT JHK for 2MASS
-MAP_DICT['Filters'] = {'u':4.239, 'g':3.303, 'r':2.285, 'i':1.698,
-                       'z':1.263, 'y':1.058, 'B':4.315, 'R':2.673,
-                       'J':0.709, 'H':0.449, 'K':0.302}
 
 ALL_FILTERS = ['u','g','r','i','z','y','B','R','J','H','K']
-FILTER_PARAMS =  {'u': (3551., 8.5864e-9), 'g': (4686., 4.8918e-9),
-                  'r': (6165., 2.8473e-9), 'i': (7481., 1.9367e-9),
-                  'z': (8931., 1.3564e-9), 'y': (10091., 1.0696e-9),
-                  'B': (4400., 6.6000e-9),  'R':(6500., 2.1900e-9),
-                  'J':(12350., 3.1353e-10), 'H':(16620., 1.1121e-10),
-                  'K':(21590., 4.2909e-11)}
+# band: (central wavelength (AA), zeropoint (erg/s/cm^2/AA), catalog index)
+FILTER_PARAMS =  {'u': (3551., 8.5864e-9, 0), 'g': (4686., 4.8918e-9, 1),
+                  'r': (6165., 2.8473e-9, 2), 'i': (7481., 1.9367e-9, 3),
+                  'z': (8931., 1.3564e-9, 4), 'y': (10091., 1.0696e-9, 5),
+                  'B': (4400., 6.6000e-9, 6),  'R':(6500., 2.1900e-9, 7),
+                  'J':(12350., 3.1353e-10, 8), 'H':(16620., 1.1121e-10, 9),
+                  'K':(21590., 4.2909e-11, 10)}
 
 ############################################
 # CATALOG INTERFACE FUNCTIONS
@@ -353,7 +321,7 @@ def identify_matches( queried_stars, found_stars, match_radius=1. ):
     return matches
 
 
-def produce_catalog( field_center, field_width, err_cut=.5, redden=True, return_models=False ):
+def produce_catalog( field_center, field_width, err_cut=.5 ):
     '''
     Create a catalog of all objects found in field.
     Requires records in 2MASS + (SDSS and/or USNOB1).
@@ -362,7 +330,6 @@ def produce_catalog( field_center, field_width, err_cut=.5, redden=True, return_
     field_width: full width of field box, in arcseconds
     err_cut: require models to have fitting parameters lower than this value,
               return None instead of SED in final_seds if the model is a poor fit.
-    redden: T/F, include galactic reddening in model fit?
     return_model: If True, returns all modeled magnitudes.
                   If False, returns modeled magnitudes supplemented
                   by observed.
@@ -404,7 +371,7 @@ def produce_catalog( field_center, field_width, err_cut=.5, redden=True, return_
     
     # now fit a model to each object, and construct the final SED,
     #  filling in missing observations with synthetic photometry.
-    final_seds, out_coords, out_modes, fit_errs, models_and_errors = [], [], [], [], []
+    final_seds, out_coords, out_modes, models, errors = [], [], [], [], []
     for i, obs in enumerate(object_mags):
         mode = modes[i]
         # the masks show, in order, which bands are included
@@ -415,22 +382,11 @@ def produce_catalog( field_center, field_width, err_cut=.5, redden=True, return_
             mask = [0,0,0,0,0, 0, 1,1, 1,1,1]
         mask = np.array(mask).astype(bool)
         
-        if redden:
-            reddening = get_reddening( ra,dec, ALL_FILTERS )
-            # de-redden the observations before comparing
-            #  to the models
-            obs[::2] -= reddening[mask]
-        
-        model, C, T, err = choose_model( obs, mask )
+        model, C, T, err, i_cut = choose_model( obs, mask )
         
         if err > err_cut: #apply quality-of-fit cut
             continue
-        else:
-            if redden:
-                # re-redden the model and observations
-                obs[::2] += reddening[mask]
-                model += reddening
-                
+        else:   
             sed = np.empty(11)
             full_errs = np.empty(11)
             # keep the real observations
@@ -440,6 +396,13 @@ def produce_catalog( field_center, field_width, err_cut=.5, redden=True, return_
             sed[~mask] = model[~mask]
             full_errs[~mask] = err
             
+            # if a value was cut while fitting, return the modeled magnitude instead of the observed
+            if i_cut != None:
+                # do some gymnastics to get the cut passband since it's behind a mask
+                cut_band = ALL_FILTERS.index( np.array(ALL_FILTERS)[mask][i_cut] )
+                sed[cut_band] = model[mask][i_cut]
+                full_errs[cut_band] = err
+            
             # put in the hack to recenter g,r (if in mode 1)
             if mode == 1:
                 sed[1] += .227 #g
@@ -448,13 +411,10 @@ def produce_catalog( field_center, field_width, err_cut=.5, redden=True, return_
             final_seds.append( sed )
             out_coords.append( object_coords[i] )
             out_modes.append( mode )
-            fit_errs.append( err )
-            models_and_errors.append( (T,full_errs) ) #( index or temp, array of errors )
-    
-    if return_models:
-        return out_coords, final_seds, out_modes, fit_errs, models_and_errors
-    else:
-        return out_coords, final_seds, out_modes, fit_errs
+            errors.append( full_errs )
+            models.append( T ) #( index or temp )
+            
+    return out_coords, final_seds, out_modes, errors, models
 
 
 def _split_field( field_center, field_width, max_size, object_coords=None ):
@@ -518,43 +478,30 @@ def find_field( star_coords, extend=.0015 ):
     return (center_ra, center_dec), (width_ra*3600, width_dec*3600.)
 
 
+def save_catalog( coordinates, seds, errors, modes, file_name ):
+    '''
+    Save an output ASCII file of the catalog.
+    coordinates, seds, errors: 2d arrays of values
+    modes: 1d array of values
+    file_name: output file to create
+    '''
+    fff = open(file_name,'w')
+    fff.write('# Observed/modeled SEDs produced by get_SEDs.py \n' +
+              '# Generated: {}\n'.format(strftime("%H:%M %B %d, %Y")) +
+              '# modes: 0 -> SDSS+2MASS; 1 -> USNOB1+2MASS\n' +
+              "# " + "{}      {}       ".format("RA","DEC") + (' '*6).join(ALL_FILTERS) + " "*6 + ' '.join([val+"_err" for val in ALL_FILTERS]) + "  Mode\n")
+    for i,row in enumerate(seds):
+        row_txt = " ".join(map(lambda x: "%.6f"%x, coordinates[i]))+" "+ \
+                      " ".join(map(lambda x: "%.3f"%x, row))+" "+ \
+                      " ".join(map(lambda x: "%.3f"%x, errors[i]))+" "+ \
+                      str(modes[i])+"\n"
+        fff.write( row_txt )
+    fff.close()
+
+
 ############################################
 # MODEL FITTING FUNCTIONS
 ############################################
-
-def get_reddening( ra, dec, filters, dust_map=MAP_DICT ):
-    '''
-    returns reddening for filters at ra,dec as 
-    defined by the dust_map_dict
-    
-    example:
-     de_reddened_mags = mags - reddening( ra,dec,filters )
-    '''
-    # coordinate-to-pixel mapping from the dust map fits header
-    X_pix = lambda l,b,pole: np.sqrt(1.-dust_map[pole][1]*np.sin(b))*np.cos(l)*dust_map[pole][2]
-    Y_pix = lambda l,b,pole: -dust_map[pole][1]*np.sqrt(1.-dust_map[pole][1]*np.sin(b))*np.sin(l)*dust_map[pole][2]
-    
-    # get galactic coordinates with eq_gal, which does everything in radians
-    ra_rad = ra*(np.pi/180.)
-    dec_rad = dec*(np.pi/180.)
-    l,b = eq_gal( 2000., ra_rad, dec_rad )
-    if b>0:
-        pole = 'N'
-    else:
-        pole = 'S'
-    
-    # get E(B-V) for these coordinates
-    X = int(round( X_pix(l,b,pole) ))
-    Y = int(round( Y_pix(l,b,pole) ))
-    EBV = dust_map[pole][0][X,Y]
-    
-    # get reddening value for each filter in filters
-    reddening = []
-    for filt in filters:
-        reddening.append( dust_map['Filters'][filt]*EBV )
-    
-    return np.array( reddening )
-
 
 def _error_C(C, model, obs, weights):
     '''
@@ -566,22 +513,6 @@ def _error_C(C, model, obs, weights):
     '''
     nm = model+C
     return np.sum( weights*(nm-obs)**2 )
-
-
-def _error_C_reddening(pars, model, reddening, obs):
-    '''
-     *** OBSOLETE, BUT KEPT FOR POSTERITY ***
-    C: number, a constant akin to distance modulus
-    R: scalar by which to add reddening
-    model: array-like, model mags
-    reddening: the reddening array for model (mags)
-    real: array-like, observed mags
-    
-    returns: sum squared errors
-    '''
-    C,R = pars
-    nm = model + C + R*reddening
-    return np.sum( (nm-obs)**2 )
 
 
 def choose_model( obs, mask, models=MODELS ):
@@ -605,7 +536,8 @@ def choose_model( obs, mask, models=MODELS ):
     mask = np.hstack( (np.array([False]), np.array(mask).astype(bool)) )
     
     mags = obs[::2]
-    zerod_mags = mags - min(mags) # recenter to compare to models
+    Jmag = mags[-1]
+    zerod_mags = mags - Jmag # recenter to compare to models
     weights = 1./obs[1::2]
     
     # Go through all models and choose the one with the most similar SED
@@ -615,85 +547,48 @@ def choose_model( obs, mask, models=MODELS ):
         res = fmin_bfgs( _error_C, 0., args=(model[mask], zerod_mags, weights), full_output=True, disp=False )
         Cs.append(res[0][0])
         sum_sqrs.append(res[1])
-        
+    
     i_best = np.argmin(sum_sqrs)
     best_model = models[1:][ i_best ]
     
     # if there's one point more than <max_diff> away from best model, try again without that point
-    #  (set that weight to zero)
+    #  (set that weight to zero, and return the index of the cut value)
+    i_cut = None
     if max( np.abs(best_model[mask] - zerod_mags) ) > 1.:
-        i_max = np.argmax(np.abs(best_model[mask] - zerod_mags))
-        weights[i_max] = 0.
+        i_cut = np.argmax(np.abs(best_model[mask] - zerod_mags))
+        weights[i_cut] = 0.
         # Go through all models again, with new weights
         sum_sqrs, Cs = [], []
         for model in models[1:]:
             res = fmin_bfgs( _error_C, 0., args=(model[mask], zerod_mags, weights), full_output=True, disp=False )
             Cs.append(res[0][0])
             sum_sqrs.append(res[1])
-
+            
         i_best = np.argmin(sum_sqrs)
         best_model = models[1:][ i_best ]
+        
+    # now add back in the Jmag value to get a model for the non-zeroed observations
+    C = Cs[i_best] + Jmag
     
-    # now add back in the zeropoint to get a model for the non-zerod observations
-    C = Cs[i_best] + min(mags)
-    
-    # return all magnitudes for best model, the offset C, the temperature, and a quality metric for the best fit
+    # return all magnitudes for best model, the offset C, the index, and a quality metric for the best fit
     #  The quality metric is the average error between the best model and the observations
-    sum_sqr_err = _error_C( C, best_model[mask], mags, np.ones_like(mags) )
-    return (best_model[1:] + C, C, best_model[0], (sum_sqr_err/len(mags))**.5 )
-
-
-def choose_model_reddening( obs, mask, reddening, models=MODELS ):
-    '''
-     *** OBSOLETE, BUT KEPT FOR POSTERITY ***
-    Find and return the best model for obs.
-    Do this by fitting to all magnitudes weighted by error.
-    
-    Returns: model, temperature, quality_parameter
-    
-    obs: an array of the observed magnitudes and errors, in
-           order as defined by the mode key (see below)
-    mask: defines what colors to use in the fit, i.e. what observations exist
-           in order: [u,g,r,i,z,y,B,R,J,H,K]
-    reddening: an array of reddening corrections for these coordinates (mags)
-    models: an array of modeled SEDs, where 0th entry is temperature
-             of the model, and the rest are magnitudes
-    '''
-    # mask is an array used to choose which modeled magnitudes
-    #  correspond to the included observations.
-    #  Note: I append a leading zero to ignore the temperature of the model
-    #   (saved in position 0 for all models)
-    mask = np.hstack( (np.array([False]), np.array(mask).astype(bool)) )
-    
-    mags = obs[::2]
-    zerod_mags = mags - min(mags) # recenter to compare to models
-    weights = 1./obs[1::2]
-    #weights = np.ones(len(obs[1::2])) #try flat weights
-    
-    # Go through all models and choose the one with the most similar SED
-    #  Keep track of the sum_squared error
-    sum_sqrs, Cs, Rs = [], [], []
-    for model in models[1:]:
-        res = fmin_l_bfgs_b( _error_C_reddening, (0.,1.), args=(model[mask], reddening[mask[1:]], zerod_mags),
-                             bounds=((None,None), (0., 1.2)), disp=0, approx_grad=True )
-        Cs.append(res[0][0])
-        Rs.append(res[0][1])
-        sum_sqrs.append(res[1])
-    i_best = np.argmin(sum_sqrs)
-    best_model = models[1:][ i_best ] 
-    # now add back in the zeropoint to get a model for the non-zerod observations
-    C = Cs[i_best] + min(mags)
-    R = Rs[i_best]
-    # return all magnitudes for best model, the offset C, the temperature, and a quality metric for the best fit
-    return (best_model[1:] + C + R*reddening, C, best_model[0], sum_sqrs[i_best])
+    weights = np.ones_like(mags)
+    if i_cut != None:
+        # handle the errors properly if a value was dropped
+        weights[i_cut] = 0.
+        sum_sqr_err = _error_C( C, best_model[mask], mags, weights )
+        metric = (sum_sqr_err/(len(mags)-1))**.5
+    else:
+        sum_sqr_err = _error_C( C, best_model[mask], mags, weights )
+        metric = (sum_sqr_err/len(mags))**.5
+    return (best_model[1:] + C, C, best_model[0], metric, i_cut )
 
 
 ############################################
 # MAIN FUNCTIONS
 ############################################
 
-def catalog( field_center, field_width, object_coords=None, 
-               redden=False, savefile=None, max_size=1800., return_models=False):
+def catalog( field_center, field_width, object_coords=None, savefile=None, max_size=1800., return_models=False):
     '''
     Main cataloging function, this produces a catalog of all objects found in field.
     Requires records in 2MASS + (SDSS and/or USNOB1).
@@ -702,7 +597,6 @@ def catalog( field_center, field_width, object_coords=None,
     field_width: full width of field box, in arcseconds
     object_coords: found objects we will compare to; if not none,
                the script will not catalog fields in which there are no objects
-    redden: boolean; account for galactic reddening
     savefile: optional; saves to specified file if present, otherwise returns answer
     return_models: if True, returns the index (or temperature) of model used for each source
     
@@ -717,7 +611,7 @@ def catalog( field_center, field_width, object_coords=None,
         object_coords, final_seds, modes, errors, models = [],[],[],[],[]
         for i,center in enumerate(centers):
             print i,'of',len(centers)
-            oc, fs, ms, ers, mods = produce_catalog( center, tile_width, redden=redden, return_models=True )
+            oc, fs, ms, ers, mods = produce_catalog( center, tile_width )
             object_coords += oc
             final_seds += fs
             modes += ms
@@ -725,28 +619,19 @@ def catalog( field_center, field_width, object_coords=None,
             models += mods
     else:
         object_coords, final_seds, modes, errors, models = \
-                         produce_catalog( field_center, max(field_width), redden=redden, return_models=True )
+                         produce_catalog( field_center, max(field_width) )
     
-    # Done! Save to file, or return SEDs and coordinates
+    # Done! Save to file, and return SEDs and coordinates
     if savefile:
-        f_format = lambda x: str(round(x, 5)) # a quick function to format the output
-        fff = open(savefile,'w')
-        fff.write('# Produced by get_SEDs.py \n# Catalog of objects in field of ' +
-                  'size (%.f, %.f) (RA,DEC in arcsec) centered at (%.4f, %.4f).\n' %( field_width[0], field_width[1], field_center[0], field_center[1]) +
-                  '# modes: 0 -> SDSS+2MASS; 1 -> USNOB1+2MASS\n'
-                  '# RA\tDEC\t' + '\t'.join(ALL_FILTERS) + '\tmode\terror\n')
-        for i,row in enumerate(final_seds):
-            fff.write( '\t'.join( map(str, object_coords[i]) ) + '\t' + '\t'.join( map(f_format, row) ) + '\t{}\t{}\n'.format(modes[i], f_format(errors[i])) )
-        fff.close()
+        save_catalog( object_coords, final_seds, errors, modes, savefile )
+    if return_models:
+        return np.array(object_coords), np.array(final_seds), models, errors, modes
     else:
-        if return_models:
-            return np.array(object_coords), np.array(final_seds), models, modes
-        else:
-            return np.array(object_coords), np.array(final_seds)
+        return np.array(object_coords), np.array(final_seds), errors, modes
     
 
 
-def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, return_array=False ):
+def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, clip=True, sig_clip=3., max_iter=5, convergence=.02, return_zps=False ):
     '''
     Calculate the zeropoint for a set of input stars and set of catalog stars.
     
@@ -754,11 +639,12 @@ def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, retu
     catalog_coords: similar array for objects created with catalog()
     input_mags: a 1D array of instrumental magnitudes
     catalog_mags: a similar array of true magnitudes as created with catalog()
-    sigma_cut: trim values beyond SC*sigma from mean
+    sig_clip: iteratively trim values more than sig_clip*std away from median
+    max_iter: stop the above sigma clipping after max_iter iterations
+    convergence: the fractional convergence required
+    return_zps: return all zeropoint estimates, not just the median
     
-    Returns: zeropoint (mags) and an estimate of quality
-    
-    TO DO: split these fields before matching.  See how it is done in produce_catalog.
+    Returns: zeropoint (mags), the median average deviation, and a list of matched indices for input and catalog sources.
     '''
     matches = identify_matches( input_coords, catalog_coords )
     matched_inputs = [input_mags[i] for i in range(len(matches)) if matches[i] != None ]
@@ -768,75 +654,57 @@ def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, retu
     for i,inst_mag in enumerate(matched_inputs):
         zp_estimates.append( matched_catalogs[i] - inst_mag )
     zp = np.array(zp_estimates)
-    zp_cut = zp[ np.abs(zp-np.mean(zp)) < 2*np.std(zp) ]
-    if not return_array:
-        return np.mean(zp_cut)
+    if clip:
+        # perform iterative sigma clipping
+        for count in range(max_iter):
+            in_len = len(zp)
+            zp = zp[ np.abs(zp-np.median(zp)) < sig_clip*np.std(zp) ]
+            if float(in_len-len(zp))/in_len < convergence:
+                break
+    mad = np.median( np.abs( zp-np.median(zp) ) )
+    if return_zps:
+        return np.median(zp), mad, matches, zp
     else:
-        return np.mean(zp_cut), zp_cut
+        return np.median(zp), mad, matches
         
 
 
-def zeropoint( input_file ):
+def zeropoint( input_file, band, output_file=None ):
     '''
-    Calculate zeropoint for stars in an input text file.
+    Calculate <band> zeropoint for stars in <input_file>.
     
-    Maybe run a crontab to delete these files in datadir daily?
-    
-    Expects input file of format:
-     IDSTRING_band_XXX.txt  (ascii, np.loadtxt-readable)
+    Expects a space-or-tab-delimited ascii input file with the
+     first column RA, the second DEC, and the third instrumental magnitude.
+     Header/comments should be #-demarcated, and all non-commented rows in the
+     file should be numbers only.
+    If an output_file name is given, it saves the entire catalog to that file.
     '''
-    # internal definitions
-    data_dir = 'data/'
-    sdss_map = { 'u':2, 'g':4, 'r':6, 'i':8, 'z':10 }  # index of band in query_sdss() response
-    catalog_map = { 'u':0, 'g':1, 'r':2, 'i':3, 'z':4, 'y':5 }  # index of band in catalog() response
-    
-    # load the data and pick a field
+    # load the data and produce a catalog
     in_data = np.loadtxt( input_file )
     input_coords = in_data[:, :2]
     input_mags = in_data[:, 2]
     field_center, field_width = find_field( input_coords )
-    idstring, band = input_file.split('_')[:2]
+    cat_coords, cat_seds, cat_errors, cat_modes = catalog( field_center, field_width, object_coords=input_coords )
     
-    # quick test whether field is in SDSS:
-    ra,dec = field_center
-    sdss = query_sdss( ra,dec, boxsize=50., trim_mag=30. )
-    if sdss != None:
-        in_sdss = True
-    else:
-        in_sdss = False
+    # identify which band this is for and calculate the zeropoint
+    cat_index = FILTER_PARAMS[band][2]
+    cat_mags = cat_seds[:, cat_index ]
+    zp, mad, matches = calc_zeropoint( input_coords, cat_coords, input_mags, cat_mags )
     
-    # if field is in SDSS, see whether we've already queried and saved the objects
-    fmt = lambda x: str( round(x,2) )
-    if in_sdss:
-        if band.lower() == 'y':
-            if isfile( data_dir+idstring+'_catalog_coords.npy' ):
-                catalog_coords = np.load( data_dir+idstring+'_catalog_coords.npy' )
-                catalog_seds = np.load( data_dir+idstring+'_catalog_seds.npy')
+    if output_file:
+        # save matched catalog to file
+        oc, os, oe, om = [],[],[],[]
+        for i,match in enumerate(matches):
+            oc.append( input_coords[i] )
+            if match:
+                os.append( cat_seds[match] )
+                oe.append( cat_errors[match] )
+                om.append( cat_modes[match] )
             else:
-                catalog_coords, catalog_seds = catalog( field_center, field_width, object_coords=input_coords )
-                np.save( data_dir+idstring+'_catalog_coords.npy', catalog_coords )
-                np.save( data_dir+idstring+'_catalog_seds.npy', catalog_seds )
-            catalog_mags = catalog_seds[:, catalog_map['y'] ]
-            
-        else:
-            if isfile( data_dir+idstring+'_sdss_query.npy' ):
-                sdss = np.load( data_dir+idstring+'_sdss_query.npy' )
-            else:
-                sdss = query_sdss( ra, dec, boxsize=field_width )
-                np.save( data_dir+idstring+'_sdss_query.npy', sdss )
-            catalog_coords = sdss[:,:2]
-            catalog_mags = sdss[:, sdss_map[band.lower()] ]
+                os.append( [99]*len(ALL_FILTERS) )
+                oe.append( [9]*len(ALL_FILTERS) )
+                om.append( -1 )
+        save_catalog( oc, os, oe, om, output_file )
     
-    else: # hit here if field is not in SDSS, but check to see whether we've already built the catalog
-        if isfile( data_dir+idstring+'_catalog_coords.npy' ):
-            catalog_coords = np.load( data_dir+idstring+'_catalog_coords.npy' )
-            catalog_seds = np.load( data_dir+idstring+'_catalog_seds.npy' )
-        else:
-            catalog_coords, catalog_seds = catalog( field_center, field_width, object_coords=input_coords )
-            np.save( data_dir+idstring+'_catalog_coords.npy', catalog_coords )
-            np.save( data_dir+idstring+'_catalog_seds.npy', catalog_seds )
-        catalog_mags = catalog_seds[:, catalog_map[band.lower()] ]
-    
-    zp = calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags )
-    return zp
+    return zp, mad
 

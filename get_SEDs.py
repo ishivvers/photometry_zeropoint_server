@@ -6,6 +6,14 @@ of online catalogs (USNOB1, 2MASS, SDSS) and synthetic photometry.
 Requires:
 - all_models.npy, a file produced by assemble_models.py
 
+Speedups:
+- Cython-ize _error_C, identify_matches
+- parallel-ize modeling
+
+to do:
+ make a class to handle all catalog stuff.
+  - single catalog instance may spawn multiple field queries,
+    multiple matching instances, etcetera
 '''
 
 
@@ -18,6 +26,9 @@ from scipy.optimize import fmin_bfgs
 from os.path import isfile
 from threading import Thread
 from time import time, strftime
+
+import multiprocessing as mp
+n_cores = mp.cpu_count()  # use all the cpus you have
 
 
 try:
@@ -39,246 +50,270 @@ FILTER_PARAMS =  {'u': (3551., 8.5864e-9, 0), 'g': (4686., 4.8918e-9, 1),
                   'K':(21590., 4.2909e-11, 10)}
 
 ############################################
-# CATALOG INTERFACE FUNCTIONS
+# CATALOG INTERFACE STUFF
 ############################################
 
-def _parse_sdss( s ):
+class online_catalog_query():
     '''
-    Parse findsdss8 output.
+    A class to handle all queries of remote catalogs.
+    The main function, query_all(), queries all catalogs in a
+     multithreaded manner, to minimize lag from I/O communications.
+     
+    Standard usage:
+     q = online_catalog_query( ra, dec, field_size ) #ra,dec in decimal degrees, field_size in arcsec
+     2Mass, SDSS, USNOB1 = q.query_all()
+     # OR #
+     2Mass = q.query_2mass() #same for all catalogs
+    '''
+    def __init__(self, ra, dec, boxsize=10. ):
+        self.coords = (ra, dec)
+        self.boxsize = boxsize
     
-    s: a string as returned by findsdss8 using the flag "-e0,"
-    returns: a 2-d array, with each row containing the results for one object:
-      [ra, dec, u, u_sigma, g, g_sigma, r, r_sigma, i, i_sigma, z, z_sigma]
-    ''' 
-    out = []
-    lines = [lll for lll in s.split('\n') if lll and lll[0]!='#']
-    for line in lines:
-        try:
-            line = [ val for val in line[4:].split(' ') if val ] #drop first part to avoid inconsistency
-            # RA and DEC
-            if '+' in line[0]:
-                char = '+'
-            else: 
-                char = '-'
-            ra  = float(line[0].split(char)[0])
-            dec = float(char + line[0].split(char)[1])
-            # magnitudes and errors
-            #  in order: u, u_sig, g, g_sig, r, r_sig, i, i_sig, z, z_sig 
-            tmp = [ra, dec]
-            for band in line[3:8]:
-                tmp += map( float, band.split(':') )
-            out.append( tmp )
-        except:
-            # silently fail on sources that are not formatted properly,
-            #  they are probably anomalous anyways.
-            pass
-    return np.array(out)
-
-
-def query_sdss( ra, dec, boxsize=10., container=None, cont_index=1, trim_mag=21. ):
-    '''
-    Query sdss8 server for sources found in a box of width boxsize (arcsecs)
-    around ra,dec.
-    Returns an array (if objects found) or None (if not)
     
-    ra,dec: coordinates in decimal degrees
-    boxsize: width of box in which to query
-    trim_mag: do not return sources with r > trim_mag
-    '''
-    # search for SDSS objects around coordinates with
-    #  defined box size, return only basic parameters, and
-    #  sort by distance from coordinates, and return a maximum
-    #  of 10000 sources (i.e. return everything)
-    request = 'findsdss8 -c "{} {}" -bs {} -e0 -sr -m 10000'.format( ra, dec, boxsize )
-    out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
-    o,e = out.communicate()
-    # parse the response
-    sdss_objects = _parse_sdss(o)
-    if len(sdss_objects) == 0:
-        # no matches
-        output = None
-    else:
-        sdss = np.array( [obj for obj in sdss_objects if obj[6] < trim_mag] )
-        output = sdss
-    if container == None:
-        return output
-    else:
-        container[ cont_index ] = output
-
-
-def _parse_2mass( s ):
-    '''
-    parse find2mass output.
+    def _parse_sdss( self, s ):
+        '''
+        Parse findsdss8 output.
+        
+        s: a string as returned by findsdss8 using the flag "-e0,"
+        returns: a 2-d array, with each row containing the results for one object:
+          [ra, dec, u, u_sigma, g, g_sigma, r, r_sigma, i, i_sigma, z, z_sigma]
+        ''' 
+        out = []
+        lines = [lll for lll in s.split('\n') if lll and lll[0]!='#']
+        for line in lines:
+            try:
+                line = [ val for val in line[4:].split(' ') if val ] #drop first part to avoid inconsistency
+                # RA and DEC
+                if '+' in line[0]:
+                    char = '+'
+                else: 
+                    char = '-'
+                ra  = float(line[0].split(char)[0])
+                dec = float(char + line[0].split(char)[1])
+                # magnitudes and errors
+                #  in order: u, u_sig, g, g_sig, r, r_sig, i, i_sig, z, z_sig 
+                tmp = [ra, dec]
+                for band in line[3:8]:
+                    tmp += map( float, band.split(':') )
+                out.append( tmp )
+            except:
+                # silently fail on sources that are not formatted properly,
+                #  they are probably anomalous anyways.
+                pass
+        return np.array(out)
     
-    s: a string as returned by find2mass using the flag "-eb"
-    returns: a 2-d array, with each row containing the results for one object:
-      [ra, dec, J, J_sigma, H, H_sigma, K, K_sigma]
-    '''
-    out = []
-    lines = [lll for lll in s.split('\n') if lll and lll[0]!='#']
-    for line in lines:
-        line = line.split('|')
-        # RA and DEC
-        ra, dec = map( float, line[0].split(' ') )
-        # magnitudes and errors
-        #  in order: J, J_sig, H, H_sig, K, K_sig
-        tmp = [ra, dec]
-        for band in line[2:5]:
-            mag, err = [val for val in band.split(' ') if val]
-            mag = float(mag)
-            if '-' not in err:
-                # some objects do not have reported errors - for these,
-                #  assume a conservative error of 0.25mag
-                err = float(err)
-            else:
-                err = .25
-            tmp += [mag, err]
-        out.append( tmp )
-    '''
-        except:
-            # silently fail on sources that are not formatted properly,
-            #  they are probably anomalous anyways.
-            pass
-    '''
+        
+    def query_sdss( self, container=None, cont_index=1, trim_mag=21. ):
+        '''
+        Query sdss8 server for sources found in a box of width boxsize (arcsecs)
+        around ra,dec.
+        Returns an array (if objects found) or None (if not)
+        
+        ra,dec: coordinates in decimal degrees
+        boxsize: width of box in which to query
+        trim_mag: do not return sources with r > trim_mag
+        '''
+        ra,dec  = self.coords
+        boxsize = self.boxsize
+        # search for SDSS objects around coordinates with
+        #  defined box size, return only basic parameters, and
+        #  sort by distance from coordinates, and return a maximum
+        #  of 10000 sources (i.e. return everything)
+        request = 'findsdss8 -c "{} {}" -bs {} -e0 -sr -m 10000'.format( ra, dec, boxsize )
+        out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
+        o,e = out.communicate()
+        # parse the response
+        sdss_objects = self._parse_sdss(o)
+        if len(sdss_objects) == 0:
+            # no matches
+            output = None
+        else:
+            sdss = np.array( [obj for obj in sdss_objects if obj[6] < trim_mag] )
+            output = sdss
+        if container == None:
+            return output
+        else:
+            container[ cont_index ] = output
     
-    return np.array(out)
 
-
-def query_2mass( ra, dec, boxsize=10., container=None, cont_index=0 ):
-    '''
-    Query 2mass server for sources found in a box of width boxsize (arcsecs)
-    around ra,dec.
-    Returns an array (if objects found) or None (if not)
+    def _parse_2mass( self, s ):
+        '''
+        parse find2mass output.
+        
+        s: a string as returned by find2mass using the flag "-eb"
+        returns: a 2-d array, with each row containing the results for one object:
+          [ra, dec, J, J_sigma, H, H_sigma, K, K_sigma]
+        '''
+        out = []
+        lines = [lll for lll in s.split('\n') if lll and lll[0]!='#']
+        for line in lines:
+            try:
+                line = line.split('|')
+                # RA and DEC
+                ra, dec = map( float, line[0].split(' ') )
+                # magnitudes and errors
+                #  in order: J, J_sig, H, H_sig, K, K_sig
+                tmp = [ra, dec]
+                for band in line[2:5]:
+                    mag, err = [val for val in band.split(' ') if val]
+                    mag = float(mag)
+                    if '-' not in err:
+                        # some objects do not have reported errors - for these,
+                        #  assume a conservative error of 0.25mag
+                        err = float(err)
+                    else:
+                        err = .25
+                    tmp += [mag, err]
+                out.append( tmp )
+            except:
+                # silently fail on sources that are not formatted properly,
+                #  they are probably anomalous anyways.
+                pass
+        return np.array(out)
     
-    ra,dec: coordinates in decimal degrees
-    boxsize: width of box in which to query
-    '''
-    # search for 2Mass point sources around coordinates with
-    #  defined box size, return only basic parameters, and 
-    #  sort by distance from coordinates, and return a 
-    #  maximum of 10000 sources (i.e. return everything)
-    request = 'find2mass -c {} {} -bs {} -eb -sr -m 10000'.format( ra, dec, boxsize )
-    out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
-    o,e = out.communicate()
-    # parse the response
-    mass_objects = _parse_2mass(o)
-    if len(mass_objects) == 0:
-        # no matches
-        output = None
-    else:
-        output = mass_objects
-    if container == None:
-        return output
-    else:
-        container[ cont_index ] = output
 
+    def query_2mass( self, container=None, cont_index=0 ):
+        '''
+        Query 2mass server for sources found in a box of width boxsize (arcsecs)
+        around ra,dec.
+        Returns an array (if objects found) or None (if not)
+        
+        ra,dec: coordinates in decimal degrees
+        boxsize: width of box in which to query
+        '''
+        ra,dec  = self.coords
+        boxsize = self.boxsize
+        # search for 2Mass point sources around coordinates with
+        #  defined box size, return only basic parameters, and 
+        #  sort by distance from coordinates, and return a 
+        #  maximum of 10000 sources (i.e. return everything)
+        request = 'find2mass -c {} {} -bs {} -eb -sr -m 10000'.format( ra, dec, boxsize )
+        out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
+        o,e = out.communicate()
+        # parse the response
+        mass_objects = self._parse_2mass(o)
+        if len(mass_objects) == 0:
+            # no matches
+            output = None
+        else:
+            output = mass_objects
+        if container == None:
+            return output
+        else:
+            container[ cont_index ] = output
+    
 
-def _parse_usnob1( s ):
-    '''
-    Parse findusnob1 output.
-    The photometric errors in USNOB1 are pretty terrible (~.3mag for each observation),
-      but most sources have more than one observation, so I average all results
-      and return the average magnitudes and the error of the mean.
-    
-    s: a string as returned by usnob1 using the flag "-eb"
-    returns: a 2-d array, with each row containing the results for one object:
-      [ra, dec, avg_B, B_sigma, avg_R, R_sigma]
-    '''
-    # parse the header to see how many of each magnitude are reported
-    header = s.split('\n')[3]
-    obs_count = header.count('Bmag')
-    # just as a sanity check, make sure it reports the same number of B,R mags
-    assert( obs_count == header.count('Rmag') )
-    
-    out = []
-    lines = [lll for lll in s.split('\n') if lll and lll[0]!='#']
-    for line in lines:
-        try:
-            line = line.split('|')
-            # RA and DEC
-            tmp = [ val for val in line[0].split(' ') if val ]
-            if '+' in tmp[1]:
-                char = '+'
-            else: 
-                char = '-'
-            ra  = float(tmp[1].split(char)[0])
-            dec = float(char + tmp[1].split(char)[1])
+    def _parse_usnob1( self, s ):
+        '''
+        Parse findusnob1 output.
+        The photometric errors in USNOB1 are pretty terrible (~.3mag for each observation),
+          but most sources have more than one observation, so I average all results
+          and return the average magnitudes and the error of the mean.
+        
+        s: a string as returned by usnob1 using the flag "-eb"
+        returns: a 2-d array, with each row containing the results for one object:
+          [ra, dec, avg_B, B_sigma, avg_R, R_sigma]
+        '''
+        # parse the header to see how many of each magnitude are reported
+        header = s.split('\n')[3]
+        obs_count = header.count('Bmag')
+        # just as a sanity check, make sure it reports the same number of B,R mags
+        assert( obs_count == header.count('Rmag') )
+        
+        out = []
+        lines = [lll for lll in s.split('\n') if lll and lll[0]!='#']
+        for line in lines:
+            try:
+                line = line.split('|')
+                # RA and DEC
+                tmp = [ val for val in line[0].split(' ') if val ]
+                if '+' in tmp[1]:
+                    char = '+'
+                else: 
+                    char = '-'
+                ra  = float(tmp[1].split(char)[0])
+                dec = float(char + tmp[1].split(char)[1])
             
-            # magnitudes and errors
-            #  in order: B, B_sigma, R, R_sigma
-            Bs, Rs = [], []
-            for i in range(obs_count):
-                tmp = line[1 + 2*i]
-                if '-' not in tmp:
-                    Bs.append( float(tmp) )
-                tmp = line[2 + 2*i]
-                if '-' not in tmp:
-                    Rs.append( float(tmp) )
-            # ignore sources that don't include at least one B and one R observation
-            if not Bs or not Rs: continue
-            B = np.mean(Bs)
-            R = np.mean(Rs)
-            # each measure has an error of about .3 mag
-            B_err = 0.3/np.sqrt(len(Bs))
-            R_err = 0.3/np.sqrt(len(Rs))
+                # magnitudes and errors
+                #  in order: B, B_sigma, R, R_sigma
+                Bs, Rs = [], []
+                for i in range(obs_count):
+                    tmp = line[1 + 2*i]
+                    if '-' not in tmp:
+                        Bs.append( float(tmp) )
+                    tmp = line[2 + 2*i]
+                    if '-' not in tmp:
+                        Rs.append( float(tmp) )
+                # ignore sources that don't include at least one B and one R observation
+                if not Bs or not Rs: continue
+                B = np.mean(Bs)
+                R = np.mean(Rs)
+                # each measure has an error of about .3 mag
+                B_err = 0.3/np.sqrt(len(Bs))
+                R_err = 0.3/np.sqrt(len(Rs))
             
-            out.append( [ra, dec, B, B_err, R, R_err] )
-        except:
-            # silently fail on sources that are not formatted properly,
-            #  they are probably anomalous anyways.
-            pass
+                out.append( [ra, dec, B, B_err, R, R_err] )
+            except:
+                # silently fail on sources that are not formatted properly,
+                #  they are probably anomalous anyways.
+                pass
+        
+        return np.array(out)
     
-    return np.array(out)
 
-
-def query_usnob1( ra, dec, boxsize=10., container=None, cont_index=2 ):
-    '''
-    Query usnob1 server for sources found in a box of width boxsize (arcsecs)
-    around ra,dec.
-    Returns an array (if objects found) or None (if not)
+    def query_usnob1( self, container=None, cont_index=2 ):
+        '''
+        Query usnob1 server for sources found in a box of width boxsize (arcsecs)
+        around ra,dec.
+        Returns an array (if objects found) or None (if not)
+        
+        ra,dec: coordinates in decimal degrees
+        boxsize: width of box in which to query
+        '''
+        ra,dec  = self.coords
+        boxsize = self.boxsize
+        # search for USNOB1 point sources around coordinates with
+        #  defined box size, return only basic parameters, and 
+        #  sort by distance from coordinates, and return a maximum
+        #  of 10000 objects (i.e. return everything)
+        request = 'findusnob1 -c {} {} -bs {} -eb -sr -m 10000'.format( ra, dec, boxsize )
+        out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
+        o,e = out.communicate()
+        usnob1_objects = self._parse_usnob1(o)
+        if len(usnob1_objects) == 0:
+            # no matches
+            output = None
+        else:
+            output = usnob1_objects
+        if container == None:
+            return output
+        else:
+            container[ cont_index ] = output
     
-    ra,dec: coordinates in decimal degrees
-    boxsize: width of box in which to query
-    '''
-    # search for USNOB1 point sources around coordinates with
-    #  defined box size, return only basic parameters, and 
-    #  sort by distance from coordinates, and return a maximum
-    #  of 10000 objects (i.e. return everything)
-    request = 'findusnob1 -c {} {} -bs {} -eb -sr -m 10000'.format( ra, dec, boxsize )
-    out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
-    o,e = out.communicate()
-    usnob1_objects = _parse_usnob1(o)
-    if len(usnob1_objects) == 0:
-        # no matches
-        output = None
-    else:
-        output = usnob1_objects
-    if container == None:
-        return output
-    else:
-        container[ cont_index ] = output
 
-
-def query_all( ra, dec, boxsize=10. ):
-    '''
-    Query all sources, with an independent thread for each
-     so that the communications happen concurrently, to save
-     time.
+    def query_all( self ):
+        '''
+        Query all sources, with an independent thread for each
+         so that the communications happen concurrently, to save
+         time.
+        
+        returns: [2Mass, SDSS, USNOB1]
+        '''
+        ra,dec  = self.coords
+        boxsize = self.boxsize
+        # results is a container into which the threads will put their responses
+        results = [None]*3
+        t0 = Thread(target=self.query_2mass, args=(results,))
+        t1 = Thread(target=self.query_sdss, args=(results,))
+        t2 = Thread(target=self.query_usnob1, args=(results,))    
+        threads = [t0, t1, t2]
+        for t in threads:
+            t.start()
+        for t in threads:
+            # join each thread and wait until each is completed
+            t.join()
+        return results
     
-    returns: [2Mass, SDSS, USNOB1]
-    '''
-    # results is a container into which the threads will put their responses
-    results = [None]*3
-    t0 = Thread(target=query_2mass, args=(ra, dec, boxsize, results))
-    t1 = Thread(target=query_sdss, args=(ra, dec, boxsize, results))
-    t2 = Thread(target=query_usnob1, args=(ra, dec, boxsize, results))    
-    threads = [t0, t1, t2]
-    for t in threads:
-        t.start()
-    for t in threads:
-        # join each thread and wait until each is completed
-        t.join()
-    return results
 
 
 def identify_matches( queried_stars, found_stars, match_radius=1. ):
@@ -334,8 +369,9 @@ def produce_catalog( field_center, field_width, err_cut=.5 ):
                   If False, returns modeled magnitudes supplemented
                   by observed.
     '''
-    ra, dec = field_center #in decimal degrees
-    mass, sdss, usnob = query_all(ra, dec, boxsize=field_width)
+    ra,dec = field_center
+    q = online_catalog_query( ra, dec, field_width )
+    mass, sdss, usnob = q.query_all()
     
     object_mags = []
     modes = []
@@ -369,6 +405,15 @@ def produce_catalog( field_center, field_width, err_cut=.5 ):
             modes.append( mode )
             object_coords.append( obj[:2] )
     
+    '''
+    # Need to re-evaluate this whole function.
+    #  Each modeling task should be done with a call to another
+    #  function (model_matches?), with only one argument.
+    # This function should be a simple wrapper, accumulating
+    #  results from identify_matches and model_matches
+    pool = mp.Pool( processes=n_cores )
+    pool.close()
+    '''
     # now fit a model to each object, and construct the final SED,
     #  filling in missing observations with synthetic photometry.
     final_seds, out_coords, out_modes, models, errors = [], [], [], [], []

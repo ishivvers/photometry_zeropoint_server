@@ -2,6 +2,7 @@
 A series of test functions writting to go along with 
  get_SEDs.py
  
+ 
 USAGE:
 $ python
 > from get_SEDs import *
@@ -9,13 +10,14 @@ $ python
 
 '''
 from get_SEDs import *
+import matplotlib.pyplot as plt
 
 ############################################
 # TEST FUNCTIONS
 ############################################
 
 
-def test_SDSS_errors( ra, dec, band_name='z', redden=False, size=900., plot=True ):
+def test_SDSS_errors( ra, dec, band_name='z', size=900., plot=True ):
     '''
     Test the error accrued for all sources in a field when estimating 
      SDSS _-band photometry from all modes.  Errors in y-band photometry
@@ -25,7 +27,6 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=False, size=900., plot=True
 
     ra,dec: coordinates in decimal degrees
     band: SDSS passband to derive errors for
-    redden: if True, account for galactic reddening when modeling photometry
     size: size of field to query around ra, dec (arseconds)
     plot: show/build plots?
     '''
@@ -47,8 +48,9 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=False, size=900., plot=True
     else:
         raise Exception('Incorrect band keyword!')
     sdss_mask = np.array(sdss_mask).astype(bool)
-
-    mass, sdss, usnob = query_all(ra, dec, boxsize=size)
+    
+    q = online_catalog_query( ra, dec, size )
+    mass, sdss, usnob = q.query_all()
 
     object_mags = []
     band_mags = []
@@ -132,19 +134,8 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=False, size=900., plot=True
             mask = [0,0,0,0,0,0,1,1,1,1,1]
         mask = np.array(mask).astype(bool)
         
-        if redden:
-            reddening = get_reddening( ra,dec, ALL_FILTERS )
-            # de-redden the observations before comparing
-            #  to the models
-            obs[::2] -= reddening[mask]
-        model, C, T, err = choose_model( obs, mask )
-        
+        model, C, T, err, i_cut = choose_model( obs, mask )
         if err > .5: continue # impose a quality-of-fit cut
-        
-        if redden:
-            # re-redden the model and obs to match
-            obs[::2] += reddening[mask]
-            model += reddening
         
         # compare calculated mag to observed
         true_band = band_mags[i]
@@ -239,7 +230,7 @@ def test_SDSS_errors( ra, dec, band_name='z', redden=False, size=900., plot=True
         
 
 # example: ra, dec = (314.136483, -6.081352)
-def construct_SED( ra, dec, redden=False ):
+def construct_SED( ra, dec ):
     '''
     Construct the SED for a single object using SDSS or USNOB
      and 2MASS magnitudes as well as synthetic photometry from a 
@@ -249,7 +240,10 @@ def construct_SED( ra, dec, redden=False ):
     '''
     # simply assume the first object returned by each catalog
     #  is the relevant object
-    mass, sdss, usnob = query_all(ra, dec, boxsize=1.)
+    
+    q = online_catalog_query( ra, dec, 1. )
+    mass, sdss, usnob = q.query_all()
+    
     if sdss != None and mass != None:
         obs = np.hstack( (sdss[0][2:], mass[0][2:]) )
         mask = [1,1,1,1,1,0,0,0,1,1,1]
@@ -260,11 +254,7 @@ def construct_SED( ra, dec, redden=False ):
         raise Exception('Cannot find source!')
     mask = np.array(mask).astype(bool)
     
-    if redden:
-        reddening = get_reddening( ra,dec, ALL_FILTERS )
-        model, T, err = choose_model_reddening( obs, mask, reddening )
-    else:
-        model, T, err = choose_model( obs, mask )
+    model, C, T, err, i_cut = choose_model( obs, mask )
         
     plt.scatter( MODELS[0][1:][mask], obs[::2], c='r', marker='x', label='observations' )
     plt.scatter( MODELS[0][1:], model, c='b', marker='D', label='model' )
@@ -276,7 +266,7 @@ def construct_SED( ra, dec, redden=False ):
     plt.show()
 
 
-def produce_plots_for_web( coords, band_name='z', redden=False, size=1800. ):
+def produce_plots_for_web( coords, band_name='z', size=1800. ):
     '''
     Test the error accrued for all sources in a field when estimating 
      SDSS _-band photometry from all modes.  Errors in y-band photometry
@@ -286,7 +276,6 @@ def produce_plots_for_web( coords, band_name='z', redden=False, size=1800. ):
 
     ra,dec: lists of coordinates in decimal degrees
     band: SDSS passband to derive errors for
-    redden: if True, account for galactic reddening when modeling photometry
     size: size of field to query around each ra, dec (arseconds)
     '''
     if band_name == 'u':
@@ -311,7 +300,8 @@ def produce_plots_for_web( coords, band_name='z', redden=False, size=1800. ):
     out_errs_0,out_errs_1 = [],[]
     for coord in coords:
         ra,dec = coord
-        mass, sdss, usnob = query_all(ra, dec, boxsize=size)
+        q = online_catalog_query( ra, dec, size )
+        mass, sdss, usnob = q.query_all()
 
         object_mags = []
         band_mags = []
@@ -377,20 +367,9 @@ def produce_plots_for_web( coords, band_name='z', redden=False, size=1800. ):
                 mask = [0,0,0,0,0,0,1,1,1,1,1]
             mask = np.array(mask).astype(bool)
 
-            if redden:
-                reddening = get_reddening( ra,dec, ALL_FILTERS )
-                # de-redden the observations before comparing
-                #  to the models
-                obs[::2] -= reddening[mask]
-            model, C, T, err = choose_model( obs, mask )
-
+            model, C, T, err, i_cut = choose_model( obs, mask )
             if err > .5: continue # impose a quality-of-fit cut
-
-            if redden:
-                # re-redden the model and obs to match
-                obs[::2] += reddening[mask]
-                model += reddening
-
+            
             # compare calculated mag to observed
             true_band = band_mags[i]
             guess_band = model[i_band]
@@ -444,7 +423,7 @@ def produce_plots_for_web( coords, band_name='z', redden=False, size=1800. ):
     return out_errs_0, out_errs_1
 
 
-def produce_plots_for_web2( coords, redden=False, size=1800. ):
+def produce_plots_for_web2( coords, size=1800. ):
     '''
     Test the error accrued for all sources in a field when estimating 
      USNOB photometry from SDSS values.
@@ -453,14 +432,14 @@ def produce_plots_for_web2( coords, redden=False, size=1800. ):
 
     ra,dec: lists of coordinates in decimal degrees
     band: USNOB passband to derive errors for
-    redden: if True, account for galactic reddening when modeling photometry
     size: size of field to query around each ra, dec (arseconds)
     '''
 
     out_errs_B, out_errs_R = [],[]
     for coord in coords:
         ra,dec = coord
-        mass, sdss, usnob = query_all(ra, dec, boxsize=size)
+        q = online_catalog_query( ra, dec, size )
+        mass, sdss, usnob = q.query_all()
 
         object_mags = []
         band_mags = []
@@ -493,21 +472,10 @@ def produce_plots_for_web2( coords, redden=False, size=1800. ):
         for i, obs in enumerate(object_mags):
             mask = [1,1,1,1,1,0,0,0,1,1,1]
             mask = np.array(mask).astype(bool)
-
-            if redden:
-                reddening = get_reddening( ra,dec, ALL_FILTERS )
-                # de-redden the observations before comparing
-                #  to the models
-                obs[::2] -= reddening[mask]
-            model, C, T, err = choose_model( obs, mask )
-
+            
+            model, C, T, err, i_cut = choose_model( obs, mask )
             if err > .5: continue # impose a quality-of-fit cut
-
-            if redden:
-                # re-redden the model and obs to match
-                obs[::2] += reddening[mask]
-                model += reddening
-
+            
             # compare calculated mag to observed
             true_bands = band_mags[i]
             guess_bands = model[6:8] 
@@ -558,13 +526,3 @@ coords = [(230., 50.), (230., 30.), (230., 10.),
 coords2= [(210., 50.), (210., 20.), (185., 30.),
           (150., 50.), (150., 20.)]
 
-'''
-To do:
- - run through set of 9 random coordinates, and produce plots for each color
-   and each coordinate.
- - see if there is a coherent value I can fudge-factor correct (in choose_model)
-   for each band!
- - update info page with errors per color, and a plot of g alongside z
- - see if I have a version of the SEXtractor output with more sources
-
-'''

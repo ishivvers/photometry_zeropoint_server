@@ -8,7 +8,7 @@ Requires:
 
 To do:
 - can improve speed by having each fitting task do a tree search amongst
-  models, instead of testing every single model.e
+  models, instead of testing every single model.
 '''
 
 
@@ -26,10 +26,12 @@ import multiprocessing as mp
 N_CORES = mp.cpu_count()  # use all the cpus you have
 
 try:
-    MODELS = np.load( open('all_models_yVega_P.npy','r') )
+    MODELS = np.load( open('all_models_P.npy','r') )
     # rezero so that K=0 for all models (makes fitting faster)
     for row in MODELS[1:]:
         row[1:] = row[1:] - row[-1]
+    # index of last dwarf: 45
+    # i.e. MODELS = np.load()[:47]
 except:
     raise IOError('cannot find models file')
 
@@ -467,6 +469,14 @@ def choose_model( obs, mask, models=MODELS ):
         Cs.append(res[0][0])
         sum_sqrs.append(res[1])
     
+    '''
+    # TEMPORARY
+    f = open( 'sum_sqrs.log', 'a' )
+    f.write( ' '.join(map(str, sum_sqrs)) + '\n')
+    f.close()
+    # /TMP
+    '''
+    
     i_best = np.argmin(sum_sqrs)
     best_model = models[1:][ i_best ]
     
@@ -559,15 +569,18 @@ class catalog():
      catalog_coords = c.coords
      catalog_SEDs = c.SEDs
     
-    Optional keywords:
+    Optional arguments:
+     input_coords: if given, will only attempt to produce a catalog for these sources.
      ignore_sdss: if True, will not use any SDSS magnitudes in modeling. Used for testing.
     '''
     MAX_SIZE = 7200 # max size of largest single query
     ERR_CUT  = .5   # maximum fitting error allowed
     
-    def __init__( self, field_center, field_width, ignore_sdss=False ):
+    def __init__( self, field_center, field_width, input_coords=None, ignore_sdss=False ):
         self.field_center = field_center
         self.field_width = field_width
+        self.input_coords = input_coords
+        self.ignore_sdss = ignore_sdss
         self.coords = []
         self.SEDs = []
         self.full_errors = []
@@ -579,10 +592,10 @@ class catalog():
             # simply don't allow queries that are too large
             raise ValueError( 'Field is too large. Max allowed: {}"'.format(self.MAX_SIZE) )
         else:
-            self.produce_catalog( ignore_sdss=ignore_sdss )
+            self.produce_catalog()
     
     
-    def produce_catalog( self, ignore_sdss=False ):
+    def produce_catalog( self ):
         '''
         Create a catalog of all objects found in field.
         Requires records in 2MASS + (SDSS and/or USNOB1).
@@ -595,8 +608,13 @@ class catalog():
         modes = []
         object_coords = []
         if mass != None:
+            if self.input_coords != None:
+                # if input coordinates were given, ignore all other objects
+                input_matches = identify_matches( mass[:,:2], self.input_coords )
+                keepers = [ i for i,match in enumerate(input_matches) if match!=None ]
+                mass = mass[ keepers ]
             # match sdss, usnob objects to 2mass objects
-            if sdss != None and not ignore_sdss:
+            if sdss != None and not self.ignore_sdss:
                 sdss_matches = identify_matches( mass[:,:2], sdss[:,:2] )
             else:
                 sdss_matches = [None]*len(mass)
@@ -732,7 +750,7 @@ def zeropoint( input_file, band, output_file=None ):
     input_coords = in_data[:, :2]
     input_mags = in_data[:, 2]
     field_center, field_width = find_field( input_coords )
-    c = catalog( field_center, max(field_width) )
+    c = catalog( field_center, max(field_width), input_coords=input_coords )
     
     # identify which band this is for and calculate the zeropoint
     cat_index = FILTER_PARAMS[band][2]

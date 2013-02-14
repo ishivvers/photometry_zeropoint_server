@@ -4,16 +4,11 @@ zeropoints for any arbitrary location on the sky, using a combination
 of online catalogs (USNOB1, 2MASS, SDSS) and synthetic photometry.
 
 Requires:
-- all_models.npy, a file produced by assemble_models.py
+- all_models_P.npy, a file produced by assemble_models.py
 
-Speedups:
-- Cython-ize _error_C, identify_matches
-- parallel-ize modeling
-
-to do:
- make a class to handle all catalog stuff.
-  - single catalog instance may spawn multiple field queries,
-    multiple matching instances, etcetera
+To do:
+- can improve speed by having each fitting task do a tree search amongst
+  models, instead of testing every single model.e
 '''
 
 
@@ -31,7 +26,7 @@ import multiprocessing as mp
 N_CORES = mp.cpu_count()  # use all the cpus you have
 
 try:
-    MODELS = np.load( open('all_models_P.npy','r') )
+    MODELS = np.load( open('all_models_yVega_P.npy','r') )
     # rezero so that K=0 for all models (makes fitting faster)
     for row in MODELS[1:]:
         row[1:] = row[1:] - row[-1]
@@ -315,7 +310,7 @@ class online_catalog_query():
     
 
 
-def identify_matches( queried_stars, found_stars, match_radius=1., chunk_size=100 ):
+def identify_matches( queried_stars, found_stars, match_radius=1., chunk_size=300 ):
     '''
     Match queried stars to found stars.
     
@@ -329,7 +324,8 @@ def identify_matches( queried_stars, found_stars, match_radius=1., chunk_size=10
     chunk_size: size (in arcseconds) of each chunk to process at a time.
       (since matching time goes as N^2)
     '''
-    match_radius_squared = (2.778e-4*match_radius)**2 # convert arcseconds into degrees
+    mr = 2.778e-4*match_radius # convert arcseconds into degrees
+    match_radius_squared = (mr)**2
     
     # find the field that encloses all of the queried sources
     field_center, field_width = find_field( queried_stars )
@@ -341,14 +337,14 @@ def identify_matches( queried_stars, found_stars, match_radius=1., chunk_size=10
     # go through each chunk, filling in matches as they're found
     matches = [None]*len(queried_stars)
     for chunk in chunks:
-        ra_range = (chunk[0]-size, chunk[0]+size)
-        dec_range = (chunk[1]-size, chunk[1]+size)
+        ra_range = (chunk[0]-size-mr, chunk[0]+size+mr)
+        dec_range = (chunk[1]-size-mr, chunk[1]+size+mr)
         
         # find all the stars in this chunk, keeping track of their original indices
         qs = [(i,star) for i,star in enumerate(queried_stars) if (ra_range[0] < star[0] < ra_range[1]) and (dec_range[0] < star[1] < dec_range[1])]
         fs = [(i,star) for i,star in enumerate(found_stars) if (ra_range[0] < star[0] < ra_range[1]) and (dec_range[0] < star[1] < dec_range[1])]
         
-        # now go through actually find the matches
+        # now go through and actually find the matches
         for q_index,star in qs:
             diffs_squared = [ (star[0]-other[0])**2 + (star[1]-other[1])**2 for tmp,other in fs ]
             if min(diffs_squared) < match_radius_squared:
@@ -562,11 +558,14 @@ class catalog():
      c = catalog( (ra, dec), field_size )  # with ra, dec in degrees and field_size in arcseconds
      catalog_coords = c.coords
      catalog_SEDs = c.SEDs
+    
+    Optional keywords:
+     ignore_sdss: if True, will not use any SDSS magnitudes in modeling. Used for testing.
     '''
     MAX_SIZE = 7200 # max size of largest single query
     ERR_CUT  = .5   # maximum fitting error allowed
     
-    def __init__( self, field_center, field_width ):
+    def __init__( self, field_center, field_width, ignore_sdss=False ):
         self.field_center = field_center
         self.field_width = field_width
         self.coords = []
@@ -578,12 +577,12 @@ class catalog():
         
         if field_width > self.MAX_SIZE:
             # simply don't allow queries that are too large
-            raise ValueError( 'Field is too large. Max allowed: {}"'.format(MAX_SIZE) )
+            raise ValueError( 'Field is too large. Max allowed: {}"'.format(self.MAX_SIZE) )
         else:
-            self.produce_catalog()
+            self.produce_catalog( ignore_sdss=ignore_sdss )
     
     
-    def produce_catalog( self ):
+    def produce_catalog( self, ignore_sdss=False ):
         '''
         Create a catalog of all objects found in field.
         Requires records in 2MASS + (SDSS and/or USNOB1).
@@ -597,7 +596,7 @@ class catalog():
         object_coords = []
         if mass != None:
             # match sdss, usnob objects to 2mass objects
-            if sdss != None:
+            if sdss != None and not ignore_sdss:
                 sdss_matches = identify_matches( mass[:,:2], sdss[:,:2] )
             else:
                 sdss_matches = [None]*len(mass)

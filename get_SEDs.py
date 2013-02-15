@@ -5,10 +5,6 @@ of online catalogs (USNOB1, 2MASS, SDSS) and synthetic photometry.
 
 Requires:
 - all_models_P.npy, a file produced by assemble_models.py
-
-To do:
-- can improve speed by having each fitting task do a tree search amongst
-  models, instead of testing every single model.
 '''
 
 
@@ -26,24 +22,23 @@ import multiprocessing as mp
 N_CORES = mp.cpu_count()  # use all the cpus you have
 
 try:
-    MODELS = np.load( open('all_models_P.npy','r') )
+    MODELS = np.load( open('all_models.npy','r') )
     # rezero so that K=0 for all models (makes fitting faster)
     for row in MODELS[1:]:
         row[1:] = row[1:] - row[-1]
-    # index of last dwarf: 45
-    # i.e. MODELS = np.load()[:47]
 except:
     raise IOError('cannot find models file')
 
 
-ALL_FILTERS = ['u','g','r','i','z','y','B','R','J','H','K']
+ALL_FILTERS = ['u','g','r','i','z','y','B','V','R','I','J','H','K']
 # band: (central wavelength (AA), zeropoint (erg/s/cm^2/AA), catalog index)
 FILTER_PARAMS =  {'u': (3551., 8.5864e-9, 0), 'g': (4686., 4.8918e-9, 1),
                   'r': (6165., 2.8473e-9, 2), 'i': (7481., 1.9367e-9, 3),
                   'z': (8931., 1.3564e-9, 4), 'y': (10091., 1.0696e-9, 5),
-                  'B': (4400., 6.6000e-9, 6),  'R':(6500., 2.1900e-9, 7),
-                  'J':(12350., 3.1353e-10, 8), 'H':(16620., 1.1121e-10, 9),
-                  'K':(21590., 4.2909e-11, 10)}
+                  'B': (4400., 6.6000e-9, 6), 'V': (5490., 3.6100e-9, 7),
+                  'R':(6500., 2.1900e-9, 7),  'I': (7885., 1.1900e-9, 9),
+                  'J':(12350., 3.1353e-10, 10), 'H':(16620., 1.1121e-10, 11),
+                  'K':(21590., 4.2909e-11, 12)}
 
 ############################################
 # ONLINE CATALOG STUFF
@@ -346,6 +341,8 @@ def identify_matches( queried_stars, found_stars, match_radius=1., chunk_size=30
         qs = [(i,star) for i,star in enumerate(queried_stars) if (ra_range[0] < star[0] < ra_range[1]) and (dec_range[0] < star[1] < dec_range[1])]
         fs = [(i,star) for i,star in enumerate(found_stars) if (ra_range[0] < star[0] < ra_range[1]) and (dec_range[0] < star[1] < dec_range[1])]
         
+        if not fs:
+            continue
         # now go through and actually find the matches
         for q_index,star in qs:
             diffs_squared = [ (star[0]-other[0])**2 + (star[1]-other[1])**2 for tmp,other in fs ]
@@ -469,14 +466,6 @@ def choose_model( obs, mask, models=MODELS ):
         Cs.append(res[0][0])
         sum_sqrs.append(res[1])
     
-    '''
-    # TEMPORARY
-    f = open( 'sum_sqrs.log', 'a' )
-    f.write( ' '.join(map(str, sum_sqrs)) + '\n')
-    f.close()
-    # /TMP
-    '''
-    
     i_best = np.argmin(sum_sqrs)
     best_model = models[1:][ i_best ]
     
@@ -519,17 +508,17 @@ def fit_sources( inn ):
      use ( in catalog.produce_catalog() )
     '''
     # the masks show, in order, which bands are included
-    #  order: u,g,r,i,z, y, B,R, J,H,K
+    #  order: u,g,r,i,z, y, B,V,R,I, J,H,K
     mode, obs = inn
     if mode == 0: # sdss+2mass
-        mask = [1,1,1,1,1, 0, 0,0, 1,1,1]
+        mask = [1,1,1,1,1, 0, 0,0,0,0, 1,1,1]
     elif mode == 1: # usnob+2mass
-        mask = [0,0,0,0,0, 0, 1,1, 1,1,1]
+        mask = [0,0,0,0,0, 0, 1,0,1,0, 1,1,1]
     mask = np.array(mask).astype(bool)
     model, C, index, err, i_cut = choose_model( obs, mask )
     
-    sed = np.empty(11)
-    full_errs = np.empty(11)
+    sed = np.empty(len(mask))
+    full_errs = np.empty(len(mask))
     # keep the real observations
     sed[mask] = obs[::2]
     full_errs[mask] = obs[1::2]
@@ -611,6 +600,8 @@ class catalog():
             if self.input_coords != None:
                 # if input coordinates were given, ignore all other objects
                 input_matches = identify_matches( mass[:,:2], self.input_coords )
+                if not any(input_matches):
+                    raise ValueError( 'No matches found!' )
                 keepers = [ i for i,match in enumerate(input_matches) if match!=None ]
                 mass = mass[ keepers ]
             # match sdss, usnob objects to 2mass objects
@@ -697,7 +688,23 @@ def save_catalog( coordinates, seds, errors, modes, file_name ):
 # ZEROPOINT STUFF
 ############################################
 
-def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, clip=True, sig_clip=3., max_iter=5, convergence=.02, return_zps=False ):
+def clip_me( inn, sig_clip=3., max_iter=5, convergence=.02 ):
+    '''
+    Perform iterative sigma clipping about the median of inn (a numpy array).
+    
+    sig_clip: iteratively trim values more than sig_clip*std away from median
+    max_iter: stop the above sigma clipping after max_iter iterations
+    convergence: the fractional convergence required
+    '''
+    for count in range(max_iter):
+        in_len = len( inn )
+        inn = inn[ np.abs(inn-np.median(inn)) < sig_clip*np.std(inn) ]
+        if float(in_len-len(inn))/in_len < convergence:
+            break
+    return inn
+
+
+def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, clip=True, return_zps=False ):
     '''
     Calculate the zeropoint for a set of input stars and set of catalog stars.
     
@@ -705,9 +712,7 @@ def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, clip
     catalog_coords: similar array for objects created with catalog()
     input_mags: a 1D array of instrumental magnitudes
     catalog_mags: a similar array of true magnitudes as created with catalog()
-    sig_clip: iteratively trim values more than sig_clip*std away from median
-    max_iter: stop the above sigma clipping after max_iter iterations
-    convergence: the fractional convergence required
+    clip: perform sigma clipping about median on zeropoint array
     return_zps: return all zeropoint estimates, not just the median
     
     Returns: zeropoint (mags), the median average deviation, and a list of matched indices for input and catalog sources.
@@ -721,12 +726,7 @@ def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, clip
         zp_estimates.append( matched_catalogs[i] - inst_mag )
     zp = np.array(zp_estimates)
     if clip:
-        # perform iterative sigma clipping
-        for count in range(max_iter):
-            in_len = len(zp)
-            zp = zp[ np.abs(zp-np.median(zp)) < sig_clip*np.std(zp) ]
-            if float(in_len-len(zp))/in_len < convergence:
-                break
+        zp = clip_me( zp )
     mad = np.median( np.abs( zp-np.median(zp) ) )
     if return_zps:
         return np.median(zp), mad, matches, zp

@@ -24,7 +24,7 @@ def test_SDSS_errors( ra, dec, band_name='z', size=900., plot=True ):
      are expected to be similar to z-band errors.
     
     Run this on any field within the SDSS footprint.
-
+    
     ra,dec: coordinates in decimal degrees
     band: SDSS passband to derive errors for
     size: size of field to query around ra, dec (arseconds)
@@ -51,7 +51,7 @@ def test_SDSS_errors( ra, dec, band_name='z', size=900., plot=True ):
     
     q = online_catalog_query( ra, dec, size )
     mass, sdss, usnob = q.query_all()
-
+    
     object_mags = []
     band_mags = []
     sdss_mags = []
@@ -59,14 +59,14 @@ def test_SDSS_errors( ra, dec, band_name='z', size=900., plot=True ):
     errs0, errs1 = [],[]  # used to plot model predictions as a function of model fit
     modes = []
     object_coords = []
-
+    
     # match sdss, usnob objects to 2mass objects
     if sdss != None:
         sdss_matches = identify_matches( mass[:,:2], sdss[:,:2] )
         usnob_matches = identify_matches( mass[:,:2], usnob[:,:2] )
     else:
         raise Exception('Must run this for coordinates in SDSS footprint!')
-
+        
     # Go through 2MASS objects and assemble a catalog
     #  of all objects present in multiple catalogs
     for i,obj in enumerate(mass):
@@ -85,7 +85,7 @@ def test_SDSS_errors( ra, dec, band_name='z', size=900., plot=True ):
             
             #gmr0.append( obj[2] - obj[4] )
             #jmk0.append( mass[i_mass][2] - mass[i_mass][-2] )
-
+            
             # also fit to USNOB+2MASS
             obs = np.hstack( (usnob[i_usnob][2:], obj[2:]) )
             object_mags.append( obs )
@@ -99,7 +99,7 @@ def test_SDSS_errors( ra, dec, band_name='z', size=900., plot=True ):
             #jmk1.append( mass[i_mass][2] - mass[i_mass][-2] )
             
         elif sdss_matches[i] != None and usnob_matches[i] == None:
-
+            
             i_sdss = sdss_matches[i]
             # fit to SDSS+2MASS
             obs = np.hstack( (sdss[i_sdss][2:][sdss_mask], obj[2:]) )
@@ -196,7 +196,7 @@ def test_SDSS_errors( ra, dec, band_name='z', size=900., plot=True ):
         plt.ylabel('Normalized count')
         plt.xlabel('Error in {}-band (mag)'.format(band_name))
         plt.title('SDSS+2MASS: {} --- USNOB1+2MASS: {}'.format(len(errors_0), len(errors_1)) )
-
+        
         '''  # these were used to determine whether I should use a color cut - i.e. do color=0 stars fit better?  answer: No
         plt.figure(4)
         plt.scatter( errors_0, jmk0, color='r', alpha=.8, label='J-K' )
@@ -205,7 +205,7 @@ def test_SDSS_errors( ra, dec, band_name='z', size=900., plot=True ):
         plt.ylabel('Color')
         plt.xlabel('Error in {}-band (mag)'.format(band_name))
         plt.title('SDSS+2MASS: {}'.format(len(errors_0)) )
-
+        
         plt.figure(5)
         plt.scatter( errors_1, jmk1, color='r', alpha=.8, label='J-K' )
         plt.scatter( errors_1, gmr1, color='b', alpha=.8, label='g-r' )
@@ -215,7 +215,7 @@ def test_SDSS_errors( ra, dec, band_name='z', size=900., plot=True ):
         plt.title('USNOB1+2MASS: {}'.format(len(errors_1)) )
         plt.show()
         '''
-    
+        
         # these are used to determine whether I should use a quality-of-fit cut. answer: yes
         plt.figure()
         plt.scatter( errors_0, errs0, color='r', alpha=.8, label='SDSS+2MASS' )
@@ -225,9 +225,9 @@ def test_SDSS_errors( ra, dec, band_name='z', size=900., plot=True ):
         plt.xlabel('Error in {}-band (mag)'.format(band_name))
         plt.title('SDSS+2MASS: {} --- USNOB+2MASS: {}'.format(len(errors_0), len(errors_1)) )
         plt.show()
-
-    return errors_0, errors_1
         
+    return errors_0, errors_1
+
 
 # example: ra, dec = (314.136483, -6.081352)
 def construct_SED( ra, dec ):
@@ -271,9 +271,9 @@ def produce_plots_for_web( coords, band_name='z', size=1800. ):
     Test the error accrued for all sources in a field when estimating 
      SDSS _-band photometry from all modes.  Errors in y-band photometry
      are expected to be similar to z-band errors.
-
+     
     Run this on any field within the SDSS footprint
-
+    
     ra,dec: lists of coordinates in decimal degrees
     band: SDSS passband to derive errors for
     size: size of field to query around each ra, dec (arseconds)
@@ -296,27 +296,27 @@ def produce_plots_for_web( coords, band_name='z', size=1800. ):
     else:
         raise Exception('Incorrect band keyword!')
     sdss_mask = np.array(sdss_mask).astype(bool)
-
+    
     out_errs_0,out_errs_1 = [],[]
     for coord in coords:
         ra,dec = coord
         q = online_catalog_query( ra, dec, size )
         mass, sdss, usnob = q.query_all()
-
+        
         object_mags = []
         band_mags = []
         sdss_mags = []
         errs0, errs1 = [],[]  # used to plot model predictions as a function of model fit
         modes = []
         object_coords = []
-
+        
         # match sdss, usnob objects to 2mass objects
         if sdss != None:
             sdss_matches = identify_matches( mass[:,:2], sdss[:,:2] )
             usnob_matches = identify_matches( mass[:,:2], usnob[:,:2] )
         else:
             raise Exception('Must run this for coordinates in SDSS footprint!')
-
+            
         # Go through 2MASS objects and assemble a catalog
         #  of all objects present in multiple catalogs
         for i,obj in enumerate(mass):
@@ -350,8 +350,8 @@ def produce_plots_for_web( coords, band_name='z', size=1800. ):
                 object_coords.append( obj[:2] )
                 modes.append( 0 )
                 band_mags.append( band )
-
-
+                
+                
         # now fit a model to each object, and construct the final SED,
         #  without including the relevant band.  Determine errors between
         #  predicted band and actual. Build an array of sample SEDs of
@@ -366,7 +366,7 @@ def produce_plots_for_web( coords, band_name='z', size=1800. ):
             elif mode == 1:
                 mask = [0,0,0,0,0,0,1,1,1,1,1]
             mask = np.array(mask).astype(bool)
-
+            
             model, C, T, err, i_cut = choose_model( obs, mask )
             if err > .5: continue # impose a quality-of-fit cut
             
@@ -386,7 +386,7 @@ def produce_plots_for_web( coords, band_name='z', size=1800. ):
             elif mode == 1:
                 errors_1.append(error)
                 errs1.append(err)
-
+                
         e0 = np.array(errors_0)
         e0_cut = e0[ np.abs(e0-np.mean(e0)) < 2*np.std(e0) ]
         e1 = np.array(errors_1)
@@ -402,8 +402,8 @@ def produce_plots_for_web( coords, band_name='z', size=1800. ):
         
         plt.figure(2)
         plt.hist( e1_cut, bins=bns, alpha=alph, linewidth=3, histtype='step', normed=True, label='{}, {}'.format(ra,dec) )
-
-
+        
+        
     plt.figure(1)
     plt.title('SDSS and 2-MASS')
     plt.xlabel('Error in {}-band (mag)'.format(band_name))

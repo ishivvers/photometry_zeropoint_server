@@ -10,14 +10,6 @@ The main zeropoint.py script assumes that input files are readable
  with numpy.loadtxt --- i.e. #-commented, tab-or-space-delimited, and uniform.
  The first column should be RA, the second DEC, the third the instrumental mag,
  and the rest are arbitrary and unused.
- The naming of the file is important, and composed of three parts:
-  [FIELD ID]_[PASSBAND]_[ARBITRARY TEXT]
- THESE THREE PARTS MUST BE SEPARATED BY AN UNDERSCORE (_) AS IN THE LINE ABOVE.
- The FIELD ID is used to save time on queries, and track whether we've already
-  built a catalog for a field.  This can be any arbitrary string, but each
-  field (i.e. for all bands) should have the same FIELD ID.
- The PASSBAND must be one of the DECam passbands, u,g,r,i,z,y (case ignored)
- The rest of the filename is ignored.
 
 REQUIRES commmand line tools findsdss8, find2mass, findusnob1
  - available from http://cdsarc.u-strasbg.fr/doc/cdsclient.html
@@ -27,83 +19,23 @@ REQUIRES commmand line tools findsdss8, find2mass, findusnob1
 
 EXAMPLES:
 
-To calculate the zeropoint for a field of instrumental
+To calculate the zeropoint for a field of y-band instrumental
  magnitudes (in the properly-formatted file `00146952_z_DECam.16.p.w.txt'):
-$ python zeropoint.py 00146952_z_DECam.16.p.w.txt
+$ python zeropoint.py 00146952_z_DECam.16.p.w.txt y
+To save the result as a catalog:
+$ python zeropoint.py 00146952_z_DECam.16.p.w.txt y catalog.txt
 
 To produce a catalog of all objects possible in a field, run:
-> from get_SEDs import *
-> catalog( (314.136483, -6.081352), (900.,900.), savefile='catalog.txt' )
+> import get_SEDs as gs
+> c = gs.catalog( (314.136483, -6.081352), 900. )
 *** catalog of objects in a 1/4 degree (900") field centered at 314.136483, -6.081352 ***
 *** can run anywhere in the sky, in or out of SDSS footprint ***
-
-To view the SED of any single source, with model compared to observations:
-> from get_SEDs import *
-> construct_SED( 314.136483, -6.081352 )
-*** other examples:
-    # USNOB1+2MASS
-    75.005564, 49.999882
-    75.032986, 49.988026
-    # SDSS+2MASS
-    199.899058, 49.766365
-    199.712023, 49.902397
-*** or any coordinate pair found by catalog()
-
-To analyze the errors accrued for determining z-band photometry
-by fitting a model to USNOB1+2MASS or SDSS+2MASS (except for z),
-run:
-> from tests import *
-> e = test_SDSS_errors( 220., 50., 'z', size=900. )
-*** this analyzes errors for objects in a 900" box around RA,DEC = 220., 50.
-*** can run on any field in SDSS footprint.
-*** note that most of the worst individual fits seem to be due
-*** to incorrect cross-matches.
-	
+Catalog entries are accessible as:
+> c.coords
+> c.SEDs
+And you can save the catalog to an ascii file:
+c.save_catalog( 'catalog.txt' )
 
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-to do:
-
-+ Compare results with results from standard-star observations.
-
-++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-Results from error analysis:
-
--- z-band -- 
-SDSS:
- mean err = .04
- avg err  = .10
-USNOB:
- mean err = .04
- avg err = .15
-
--- i-band -- 
-USNOB:
- mean err = .08
- avg err = .16
-
--- r-band --
-USNOB:
- mean err = .14
- avg err = .17
-SUBTRACT .114:
- mean err = .10
- avg err = .17
-
--- g-band --
-USNOB:
- mean err = .21
- avg err = .23
-SUBTRACT .227:
- mean err = .14
- avg err = .23
-
--- u-band --
-USNOB:
- mean err = .24
- avg err = .41
-
--- B/R-band --
-bad
 
 

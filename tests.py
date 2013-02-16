@@ -427,31 +427,31 @@ def produce_plots_for_web2( coords, size=1800. ):
     '''
     Test the error accrued for all sources in a field when estimating 
      USNOB photometry from SDSS values.
-
+     
     Run this on any field within the SDSS footprint
-
+    
     ra,dec: lists of coordinates in decimal degrees
     band: USNOB passband to derive errors for
     size: size of field to query around each ra, dec (arseconds)
     '''
-
+    
     out_errs_B, out_errs_R = [],[]
     for coord in coords:
         ra,dec = coord
         q = online_catalog_query( ra, dec, size )
         mass, sdss, usnob = q.query_all()
-
+        
         object_mags = []
         band_mags = []
         object_coords = []
-
+        
         # match sdss, usnob objects to 2mass objects
         if sdss != None:
             sdss_matches = identify_matches( mass[:,:2], sdss[:,:2] )
             usnob_matches = identify_matches( mass[:,:2], usnob[:,:2] )
         else:
             raise Exception('Must run this for coordinates in SDSS footprint!')
-
+            
         # Go through 2MASS objects and assemble a catalog
         #  of all objects present in multiple catalogs
         for i,obj in enumerate(mass):
@@ -464,7 +464,7 @@ def produce_plots_for_web2( coords, size=1800. ):
                 object_mags.append( obs )
                 object_coords.append( obj[:2] )
                 band_mags.append( band )
-
+                
         # now fit a model to each object, and construct the final SED,
         #  without including the relevant band.  Determine errors between
         #  predicted band and actual.
@@ -481,7 +481,7 @@ def produce_plots_for_web2( coords, size=1800. ):
             guess_bands = model[6:8] 
             errorsB.append(true_bands[0] - guess_bands[0])
             errorsR.append(true_bands[1] - guess_bands[1])
-
+            
         eR = np.array(errorsR)
         eR_cut = eR[ np.abs(eR-np.mean(eR)) < 2*np.std(eR) ]
         eB = np.array(errorsB)
@@ -489,17 +489,17 @@ def produce_plots_for_web2( coords, size=1800. ):
         
         out_errs_B.append( (np.mean(eB_cut), np.std(eB_cut)) )
         out_errs_R.append( (np.mean(eR_cut), np.std(eR_cut)) )
-
+        
         # now plot a histogram for each type
         plt.figure(1)
         alph = .75
         bns = map( lambda x: round(x,2), np.linspace(-1, 1, 20) )
         plt.hist( eB_cut, bins=bns, alpha=alph, linewidth=3, histtype='step', normed=True, label='{}, {}'.format(ra,dec) )
-
+        
         plt.figure(2)
         plt.hist( eR_cut, bins=bns, alpha=alph, linewidth=3, histtype='step', normed=True, label='{}, {}'.format(ra,dec) )
-
-
+        
+        
     plt.figure(1)
     plt.title('SDSS and 2-MASS')
     plt.xlabel('Error in B-band (mag)')
@@ -507,7 +507,7 @@ def produce_plots_for_web2( coords, size=1800. ):
     leg = plt.legend(loc='best', fancybox=True)
     leg.get_frame().set_alpha(0.0)
     plt.savefig("sdss_errs_B.png", transparent=True)
-
+    
     plt.figure(2)
     plt.title('SDSS and 2-MASS')
     plt.xlabel('Error in R-band (mag)')

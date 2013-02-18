@@ -14,6 +14,7 @@ Requires:
 import numpy as np
 from subprocess import Popen, PIPE
 from scipy.optimize import fmin_bfgs
+import scipy.spatial.kdtree
 from os.path import isfile
 from threading import Thread
 from time import time, strftime
@@ -307,53 +308,37 @@ class online_catalog_query():
     
 
 
-def identify_matches( queried_stars, found_stars, match_radius=1., chunk_size=300 ):
+def identify_matches( queried_stars, found_stars, match_radius=1. ):
     '''
-    Match queried stars to found stars.
+    Use a kd-tree (3d) to match two lists of stars, using full spherical coordinate distances.
     
-    Returns list of indices in found_stars for corresponding
-     star in queried_stars, or None if no match found.
-     
-    queried_stars: an array of coordinates of stars to match
-    found_stars: an array of coordinates of located stars
-    match_radius: the maximum offset between queried and found star to 
-      call a match, in arcseconds
-    chunk_size: size (in arcseconds) of each chunk to process at a time.
-      (since matching time goes as N^2)
+    queried_stars, found_stars: numpy arrays of [ [ra,dec],[ra,dec], ... ] (all in decimal degrees)
+    match_radius: max distance (in arcseconds) allowed to identify a match between two stars.
+    
+    Returns two arrays corresponding to queried stars:
+    indices - an array of the indices (in found_stars) of the best match. Invalid (negative) index if no matches found.
+    distances - an array of the distances to the closest match. NaN if no match found.
     '''
-    mr = 2.778e-4*match_radius # convert arcseconds into degrees
-    match_radius_squared = (mr)**2
+    ra1, dec1 = queried_stars[:,0], queried_stars[:,1]
+    ra2, dec2 = found_stars[:,0], found_stars[:,1]
+    dist = 2.778e-4*match_radius # convert arcseconds into degrees 
     
-    # find the field that encloses all of the queried sources
-    field_center, field_width = find_field( queried_stars )
-    # split into seperate chunks
-    chunks, size = split_field( field_center, field_width, chunk_size, object_coords=queried_stars )
-    # convert size to degrees, for use below
-    size = size*2.778e-4
+    cosd = lambda x : np.cos(np.deg2rad(x))
+    sind = lambda x : np.sin(np.deg2rad(x))
+    mindist = 2 * sind(dist/2) 
+    getxyz = lambda r, d: [cosd(r)*cosd(d), sind(r)*cosd(d), sind(d)]
+    xyz1 = np.array(getxyz(ra1, dec1))
+    xyz2 = np.array(getxyz(ra2, dec2))
     
-    # go through each chunk, filling in matches as they're found
-    matches = [None]*len(queried_stars)
-    for chunk in chunks:
-        ra_range = (chunk[0]-size-mr, chunk[0]+size+mr)
-        dec_range = (chunk[1]-size-mr, chunk[1]+size+mr)
-        
-        # find all the stars in this chunk, keeping track of their original indices
-        qs = [(i,star) for i,star in enumerate(queried_stars) if (ra_range[0] < star[0] < ra_range[1]) and (dec_range[0] < star[1] < dec_range[1])]
-        fs = [(i,star) for i,star in enumerate(found_stars) if (ra_range[0] < star[0] < ra_range[1]) and (dec_range[0] < star[1] < dec_range[1])]
-        
-        if not fs:
-            continue
-        # now go through and actually find the matches
-        for q_index,star in qs:
-            diffs_squared = [ (star[0]-other[0])**2 + (star[1]-other[1])**2 for tmp,other in fs ]
-            if min(diffs_squared) < match_radius_squared:
-                i_best = np.argmin(diffs_squared)
-                matches[q_index] = fs[i_best][0] # record, in the proper spot, the original index of the matched star
-            else:
-                pass
-    return matches
+    tree2 = scipy.spatial.KDTree(xyz2.transpose())
+    ret = tree2.query(xyz1.transpose(), 1, 0, 2, mindist)
+    dist, ind = ret
+    dist = np.rad2deg(2*np.arcsin(dist/2))
+    
+    ind[ np.isnan(dist) ] = -9999
+    return ind, dist
 
-
+   
 def find_field( star_coords, extend=.0015 ):
     '''
     determine the best field for a list of star coordinates,
@@ -599,34 +584,33 @@ class catalog():
         if mass != None:
             if self.input_coords != None:
                 # if input coordinates were given, ignore all other objects
-                input_matches = identify_matches( mass[:,:2], self.input_coords )
-                if not any(input_matches):
+                input_matches, tmp = identify_matches( mass[:,:2], self.input_coords )
+                if not np.sum( np.isfinite(tmp) ):
                     raise ValueError( 'No matches found!' )
-                keepers = [ i for i,match in enumerate(input_matches) if match!=None ]
-                mass = mass[ keepers ]
+                mass = mass[ input_matches[input_matches>0] ]
             # match sdss, usnob objects to 2mass objects
             if sdss != None and not self.ignore_sdss:
-                sdss_matches = identify_matches( mass[:,:2], sdss[:,:2] )
+                sdss_matches, tmp = identify_matches( mass[:,:2], sdss[:,:2] )
             else:
-                sdss_matches = [None]*len(mass)
+                sdss_matches = -9999*np.ones(len(mass), dtype='int')
             if usnob != None:
-                usnob_matches = identify_matches( mass[:,:2], usnob[:,:2] )
+                usnob_matches, tmp = identify_matches( mass[:,:2], usnob[:,:2] )
             else:
-                usnob_matches = [None]*len(mass)
+                usnob_matches = -9999*np.ones(len(mass), dtype='int')
             
             # Go through 2mass objects and assemble a catalog
             #  of all objects present in 2mass and (sdss or usnob)
             #  Use 2mass+sdss OR 2mass+usnob (ignore usnob if sdss present)
             for i,obj in enumerate(mass):
-                if sdss_matches[i] != None:
+                if (sdss_matches[i]>=0):
                     i_sdss = sdss_matches[i]
                     obs = np.hstack( (sdss[i_sdss][2:], obj[2:]) )
                     mode = 0
-                elif sdss_matches[i] == None and usnob_matches[i] != None:
+                elif (sdss_matches[i]<0) and (usnob_matches[i]>=0):
                     i_usnob = usnob_matches[i]
                     obs = np.hstack( (usnob[i_usnob][2:], obj[2:]) )
                     mode = 1
-                elif sdss_matches[i] == None and usnob_matches[i] == None:
+                elif (sdss_matches[i]<0) and (usnob_matches[i]<0):
                     continue
                 object_mags.append( obs )
                 modes.append( mode )
@@ -717,9 +701,9 @@ def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, clip
     
     Returns: zeropoint (mags), the median average deviation, and a list of matched indices for input and catalog sources.
     '''
-    matches = identify_matches( input_coords, catalog_coords )
-    matched_inputs = [input_mags[i] for i in range(len(matches)) if matches[i] != None ]
-    matched_catalogs = [catalog_mags[ matches[i] ] for i in range(len(matches)) if matches[i] != None ]
+    matches, tmp = identify_matches( input_coords, catalog_coords )
+    matched_inputs = input_mags[ np.isfinite(matches) ]
+    matched_catalogs = catalog_mags[ matches[ np.isfinite(matches) ] ]
     
     zp_estimates = []
     for i,inst_mag in enumerate(matched_inputs):

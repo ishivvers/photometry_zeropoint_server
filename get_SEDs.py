@@ -308,7 +308,7 @@ class online_catalog_query():
     
 
 
-def identify_matches( queried_stars, found_stars, match_radius=1. ):
+def identify_matches( queried_stars, found_stars, match_radius=3. ):
     '''
     Use a kd-tree (3d) to match two lists of stars, using full spherical coordinate distances.
     
@@ -587,7 +587,7 @@ class catalog():
                 input_matches, tmp = identify_matches( mass[:,:2], self.input_coords )
                 if not np.sum( np.isfinite(tmp) ):
                     raise ValueError( 'No matches found!' )
-                mass = mass[ input_matches[input_matches>0] ]
+                mass = mass[ input_matches>=0 ]
             # match sdss, usnob objects to 2mass objects
             if sdss != None and not self.ignore_sdss:
                 sdss_matches, tmp = identify_matches( mass[:,:2], sdss[:,:2] )
@@ -702,8 +702,8 @@ def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, clip
     Returns: zeropoint (mags), the median average deviation, and a list of matched indices for input and catalog sources.
     '''
     matches, tmp = identify_matches( input_coords, catalog_coords )
-    matched_inputs = input_mags[ np.isfinite(matches) ]
-    matched_catalogs = catalog_mags[ matches[ np.isfinite(matches) ] ]
+    matched_inputs = input_mags[ matches>=0 ]
+    matched_catalogs = catalog_mags[ matches[ matches>=0 ] ]
     
     zp_estimates = []
     for i,inst_mag in enumerate(matched_inputs):
@@ -746,7 +746,7 @@ def zeropoint( input_file, band, output_file=None ):
         oc, os, oe, om = [],[],[],[]
         for i,match in enumerate(matches):
             oc.append( input_coords[i] )
-            if match:
+            if match >= 0:
                 os.append( c.SEDs[match] )
                 oe.append( c.full_errors[match] )
                 om.append( c.modes[match] )

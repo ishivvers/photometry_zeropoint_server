@@ -18,12 +18,12 @@ def compare_to_SDSS( field_center, field_width, clip=True ):
     sdss = q.query_sdss()
     c = gs.catalog( field_center, field_width, ignore_sdss=True )
     
-    matches = gs.identify_matches( sdss[:,:2], c.coords )
+    matches,tmp = gs.identify_matches( sdss[:,:2], c.coords )
     model_matches = []
     obs_matches = []
     model_err = []
     for i,match in enumerate(matches):
-        if match != None:
+        if match >= 0:
             model_matches.append( c.SEDs[match] )
             obs_matches.append( sdss[i,2:][::2] )
             model_err.append( c.full_errors[match] )
@@ -75,11 +75,11 @@ def web_plots_SDSS( band='z', size=1800. ):
         sdss = q.query_sdss()
         c = gs.catalog( field_center, size, ignore_sdss=True )
 
-        matches = gs.identify_matches( sdss[:,:2], c.coords )
+        matches,tmp = gs.identify_matches( sdss[:,:2], c.coords )
         model_matches = []
         obs_matches = []
         for i,match in enumerate(matches):
-          if match != None:
+          if match >= 0:
               model_matches.append( c.SEDs[match] )
               obs_matches.append( sdss[i,2:][::2] )
         model_matches = np.array(model_matches)
@@ -135,12 +135,12 @@ def compare_to_USNOB( field_center, field_width, clip=True ):
     usnob = q.query_usnob1()
     c = gs.catalog( field_center, field_width )
     
-    matches = gs.identify_matches( usnob[:,:2], c.coords )
+    matches,tmp = gs.identify_matches( usnob[:,:2], c.coords )
     model_matches = []
     obs_matches = []
     model_err = []
     for i,match in enumerate(matches):
-        if match != None:
+        if match >= 0:
             model_matches.append( c.SEDs[match] )
             obs_matches.append( usnob[i,2:][::2] )
             model_err.append( c.full_errors[match] )
@@ -201,14 +201,14 @@ def compare_to_UKIDSS( field_center, field_size, fn='data/ukidss_in_SDSS.csv', c
     
     field_center, field_width = gs.find_field( input_coords )
     c = gs.catalog( field_center, max(field_width), input_coords=input_coords, ignore_sdss=True )
-    matches = gs.identify_matches( input_coords, c.coords, 3. )
+    matches,tmp = gs.identify_matches( input_coords, c.coords, 3. )
     
     i_y = 5  #index of yband in full_errors and in SEDs
     model_match = []
     obs_match = []
     model_err = []
     for i,match in enumerate(matches):
-        if match != None:
+        if match >= 0:
             model_match.append( c.SEDs[match,i_y] )
             obs_match.append( Y[i][0] )
             model_err.append( c.full_errors[match,i_y] )
@@ -267,13 +267,13 @@ def web_plots_UKIDSS( size=1800., ignore_sdss=True ):
         
         field_center, field_width = gs.find_field( input_coords )
         c = gs.catalog( field_center, max(field_width), input_coords=input_coords, ignore_sdss=ignore_sdss )
-        matches = gs.identify_matches( input_coords, c.coords )
+        matches,tmp = gs.identify_matches( input_coords, c.coords )
         
         i_y = gs.FILTER_PARAMS['y'][-1]
         model_match = []
         obs_match = []
         for i,match in enumerate(matches):
-            if match != None:
+            if match >= 0:
                 model_match.append( c.SEDs[match,i_y] )
                 obs_match.append( Y[i][0] )
         model_match = np.array(model_match)
@@ -326,13 +326,13 @@ def compare_to_APASS( field_center, field_size, fn='data/apass_in_SDSS.csv', cli
     
     field_center, field_width = gs.find_field( input_coords )
     c = gs.catalog( field_center, max(field_width), input_coords=input_coords, ignore_sdss=True )
-    matches = gs.identify_matches( input_coords, c.coords )
+    matches,tmp = gs.identify_matches( input_coords, c.coords )
     
     model_matches = []
     obs_matches = []
     model_err = []
     for i,match in enumerate(matches):
-        if match != None:
+        if match >= 0:
             model_matches.append( c.SEDs[match] )
             obs_matches.append( obs[i][::2] )
             model_err.append( c.model_errors[match] )
@@ -405,19 +405,19 @@ def web_plots_APASS( size=1800, ignore_sdss=True ):
         
         field_center, field_width = gs.find_field( input_coords )
         c = gs.catalog( field_center, max(field_width), input_coords=input_coords, ignore_sdss=ignore_sdss )
-        matches = gs.identify_matches( input_coords, c.coords )
+        matches,tmp = gs.identify_matches( input_coords, c.coords )
         
         model_matches = []
         obs_matches = []
         for i,match in enumerate(matches):
-            if match != None:
+            if match >= 0:
                 model_matches.append( c.SEDs[match] )
                 obs_matches.append( obs[i][::2] )
         model_matches = np.array(model_matches)
         obs_matches = np.array(obs_matches)
         
         for i,color in enumerate(['g','r','i','B','V']):
-            if color != 'B': continue
+            if color != 'V': continue
             if color=='g': c='g'
             elif color=='r': c='r'
             elif color=='i': c='orange'
@@ -433,11 +433,11 @@ def web_plots_APASS( size=1800, ignore_sdss=True ):
 
             plt.hist( err, bins=bins, alpha=.8, linewidth=3, histtype='step', normed=True, label="(%.2f, %.2f)" %(coords[i_field][0], coords[i_field][1]))
             
-    plt.xlabel('Error in B-band (mag)')
+    plt.xlabel('Error in V-band (mag)')
     plt.ylabel('Normalized Count')
     leg = plt.legend(loc='best', fancybox=True)
     leg.get_frame().set_alpha(0.0)
-    plt.savefig("apass_errs_B.png", transparent=True)
+    plt.savefig("apass_errs_V.png", transparent=True)
     return medians, mads
 
 '''
@@ -455,63 +455,103 @@ mad: .079
 --- V sdss ---
 median: .031
 mad: .084
+
+-- B sdss ---
+median: .03
+mad: .13
 '''
     
-def check_APASS_phot(ncomp=500, fn='data/apass_in_SDSS.csv', clip=True):
+def check_APASS_phot(size=1800 ):
     '''
     To check how close APASS and SDSS photometry are.
     '''
-    dat = np.loadtxt( fn, delimiter=',', skiprows=1 )[:ncomp]
-    input_coords = dat[:,:4:2]
-    V = dat[:,5:7]
-    B = dat[:,7:9]
-    g = dat[:,9:11]
-    r = dat[:,11:13]
-    iband = dat[:,13:15]
-    
-    field_center, field_width = gs.find_field( input_coords )
-    q = gs.online_catalog_query( field_center[0], field_center[1], max(field_width) )
-    sdss = q.query_sdss()
-    
-    matches = gs.identify_matches( input_coords, sdss[:,:2] )
-    
-    sdss_match = []
-    g_match, r_match, i_match = [],[],[]
-    for i,match in enumerate(matches):
-        if match == None: continue
-        if (g[i,0] < 0) or (r[i,0] < 0) or (iband[i,0] < 0): continue # NA values
-        sdss_match.append( sdss[match] )
-        g_match.append( g[i] )
-        r_match.append( r[i] )
-        i_match.append( iband[i] )
-    sdss = np.array(sdss_match)
-    g = np.array(g_match)
-    r = np.array(r_match)
-    iband = np.array(i_match)
-    
-    plt.figure()
+    coords= [(335., .5), (350., .5), (1., .5),
+              (15., .5), (30., .5)]
+    all_data = np.loadtxt( 'data/apass_all.csv', delimiter=',')
+    medians = { 'g':[], 'r':[], 'i':[], 'B':[], 'V':[] }
+    mads = { 'g':[], 'r':[], 'i':[], 'B':[], 'V':[] }
     bins = np.linspace(-1, 1, 20)
-    for i in [4,6,8]:
-        if i==4:
-            l = c = 'g'
-            band = g
-        elif i==6:
-            l = c = 'r'
-            band = r
-        elif i==8:
-            l = 'i'; c = 'orange'
-            band = iband
-        err = sdss[:,i] - band[:,0]
-        if clip:
-            err = gs.clip_me( err )
-        else:
-            err = error
-        med = np.median( err )
-        mad = np.median( np.abs( err-np.median(err) ) )
-        plt.hist( err, label=l+': %.2f -- %.2f' %(med, mad), color=c, bins=bins, linewidth=3, histtype='step', normed=True)
-    plt.legend( loc='best' )
-    plt.xlabel( 'sdss - model' )
-    plt.title('comparing APASS and SDSS')
-    plt.show()
 
+    fs = 2.778e-4*size
+    for i_field,field_center in enumerate(coords):
+        data = []
+        for row in all_data:
+            if (field_center[0]-fs < row[0] < field_center[0]+fs) and (field_center[1]-fs < row[2] < field_center[1]+fs):
+                data.append(row)
+        data = np.array(data)
+        input_coords = data[:,:4:2]
+        V = data[:,5:7]
+        B = data[:,7:9]
+        g = data[:,9:11]
+        r = data[:,11:13]
+        iband = data[:,13:15]
+        obs = np.hstack( (g,r,iband,B,V) )
+        
+        field_center, field_width = gs.find_field( input_coords )
+        q = gs.online_catalog_query( field_center[0], field_center[1], max(field_width) )
+        sdss = q.query_sdss()
+        usnob = q.query_usnob1()
+        sdss_matches,tmp = gs.identify_matches( input_coords, sdss[:,:2] )
+        usnob_matches,tmp = gs.identify_matches( input_coords, usnob[:,:2] )
+        
+        sdss_matched = []
+        s_apass_matched = []
+        for i,match in enumerate(sdss_matches):
+            if match >= 0:
+                sdss_matched.append( sdss[match][2::2] )
+                s_apass_matched.append( obs[i][::2] )
+        sdss_matched = np.array(sdss_matched)
+        s_apass_matched = np.array(s_apass_matched)
+        
+        usnob_matched = []
+        u_apass_matched = []
+        for i,match in enumerate(usnob_matches):
+            if match >= 0:
+                usnob_matched.append( usnob[match][2::2] )
+                u_apass_matched.append( obs[i][::2] )
+        usnob_matched = np.array(usnob_matched)
+        u_apass_matched = np.array(u_apass_matched)
+        
+        
+        for i,color in enumerate(['g','r','i','B']):
+            i_color = gs.FILTER_PARAMS[color][-1]
+            if color=='B':
+                i_color = 0
+                error = u_apass_matched[:, i] - usnob_matched[:,i_color]
+            else:
+                error = s_apass_matched[:, i] - sdss_matched[:,i_color]
+            err = gs.clip_me(error)
+            med = np.median( err )
+            mad = np.median( np.abs( err-np.median(err) ) )
+            medians[color].append(med)
+            mads[color].append(mad)
+            
+            plt.figure(i)
+            plt.hist( err, bins=bins, alpha=.8, linewidth=3, histtype='step', normed=True, label="(%.2f, %.2f)" %(coords[i_field][0], coords[i_field][1]))
+            plt.xlabel('Error in {}-band (mag)'.format(color))
+            plt.ylabel('Normalized Count')
+            leg = plt.legend(loc='best', fancybox=True)
+            leg.get_frame().set_alpha(0.0)
+            plt.savefig("apass_errs_{}.png".format(color), transparent=True)
+            
+    return medians, mads
 
+'''
+Errors over same old five fields, but now between SDSS, APASS:
+
+--- B ---
+median: .22
+mad: .08
+
+--- g ---
+median: .05
+mad: .11
+
+--- r ---
+median: .06
+mad: .06
+
+--- i ---
+median: .14
+mad: .11
+'''

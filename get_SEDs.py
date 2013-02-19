@@ -518,11 +518,6 @@ def fit_sources( inn ):
         sed[cut_band] = model[mask][i_cut]
         full_errs[cut_band] = err
         
-    # put in the hack to recenter g,r (if in mode 1)
-    if mode == 1:
-        sed[1] += .227 #g
-        sed[2] += .114 #r
-        
     return ( sed, full_errs, err, index )
 
 

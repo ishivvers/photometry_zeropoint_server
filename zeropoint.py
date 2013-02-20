@@ -13,7 +13,10 @@ from sys import argv
 if __name__ == '__main__':
     in_file  = argv[1]
     passband = argv[2]
-    out_file = argv[3]
+    if len(argv) > 3:
+        out_file = argv[3]
+    else:
+        out_file = None
     
     zp, mad = zeropoint( in_file, passband, output_file=out_file )
     print zp, mad

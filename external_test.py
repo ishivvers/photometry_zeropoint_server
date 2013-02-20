@@ -7,16 +7,18 @@ Must run from my_code folder.
 import numpy as np
 import matplotlib.pyplot as plt
 
-import get_SEDs as gs
+import get_SEDs_reddening as gs
 
 
-def compare_to_SDSS( field_center, field_width, clip=True ):
+def compare_to_SDSS( field_center, field_width, clip=True, ignore_reddening=False ):
     '''
     Compare models built from USNOB to true SDSS mags.
     '''
     q = gs.online_catalog_query( field_center[0], field_center[1], field_width )
     sdss = q.query_sdss()
-    c = gs.catalog( field_center, field_width, ignore_sdss=True )
+    if sdss == None:
+        raise ValueError('No SDSS sources in this field!')
+    c = gs.catalog( field_center, field_width, ignore_sdss=True, ignore_reddening=ignore_reddening )
     
     matches,tmp = gs.identify_matches( sdss[:,:2], c.coords )
     model_matches = []

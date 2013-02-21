@@ -61,13 +61,20 @@ def compare_to_SDSS( field_center, field_width, clip=True ):
     plt.show()
 
 
-def web_plots_SDSS( band='z', size=1800. ):
+def web_plots_SDSS( size=1800. ):
     '''
     produce web plot and error report for SDSS predicted from USNOB
     '''
+    '''
     coords= [(210., 50.), (210., 20.), (185., 30.),
               (150., 50.), (150., 20.)]
-    medians, mads = [],[]
+    '''
+    
+    coords= [(335., .5), (350., .5), (1., .5),
+              (15., .5), (30., .5)]
+              
+    medians = { 'u':[], 'g':[], 'r':[], 'i':[], 'z':[] }
+    mads = { 'u':[], 'g':[], 'r':[], 'i':[], 'z':[] }
     bins = np.linspace(-1, 1, 20)
     for field_center in coords:
         print 'starting {}\n\n\n'.format(field_center)
@@ -85,46 +92,27 @@ def web_plots_SDSS( band='z', size=1800. ):
         model_matches = np.array(model_matches)
         obs_matches = np.array(obs_matches)
         
-        i_filt = gs.FILTER_PARAMS[band][-1]
-        err = gs.clip_me(obs_matches[:,i_filt] - model_matches[:,i_filt])
-        med = np.median( err )
-        mad = np.median( np.abs( err-np.median(err) ) )
+        for i,band in enumerate(['u','g','r','i','z']):
+            i_filt = gs.FILTER_PARAMS[band][-1]
+            err = gs.clip_me(obs_matches[:,i] - model_matches[:,i_filt])
+            med = np.median( err )
+            mad = np.median( np.abs( err-np.median(err) ) )
         
-        medians.append(med); mads.append(mad)
-        
-        plt.hist( err, bins=bins, alpha=.8, linewidth=3, histtype='step', normed=True, label="(%.2f, %.2f)" %(field_center[0], field_center[1]))
-    plt.xlabel('Error in {}-band (mag)'.format(band))
-    plt.ylabel('Normalized Count')
-    leg = plt.legend(loc='best', fancybox=True)
-    leg.get_frame().set_alpha(0.0)
-    plt.savefig("sdss_errs_%c_%.1f_%.1f.png" %(band, field_center[0], field_center[1]), transparent=True)
+            medians[band].append(med); mads[band].append(mad)
+            
+            plt.figure(i)
+            plt.hist( err, bins=bins, alpha=.8, linewidth=3, histtype='step', normed=True, label="(%.2f, %.2f)" %(field_center[0], field_center[1]))
+    
+    for i,band in enumerate(['u','g','r','i','z']):
+        plt.figure(i)
+        plt.xlabel('Error in {}-band (mag)'.format(band))
+        plt.ylabel('Normalized Count')
+        leg = plt.legend(loc='best', fancybox=True)
+        leg.get_frame().set_alpha(0.0)
+        plt.savefig("sdss_errs_%c.png" %(band), transparent=True)
     return medians, mads
     
 
-'''
-Error results over 5 fields: [(210., 50.), (210., 20.), (185., 30.),
-          (150., 50.), (150., 20.)]
-
--- z --
-median: .046
-mad: .105
-
--- i --
-median: .032
-mad: .092
-
--- r --
-median: .043
-mad: .092
-
--- g --
-median: .053
-mad: .128
-
--- u --
-median: .043
-mad: .254
-'''
     
 
 def compare_to_USNOB( field_center, field_width, clip=True ):
@@ -307,7 +295,7 @@ median: .021
 mad: .071
 '''
 
-def compare_to_APASS( field_center, field_size, fn='data/apass_in_SDSS.csv', clip=True ):
+def compare_to_APASS( field_center, field_size, fn='data/apass_all.csv', ignore_sdss=True, clip=True ):
     dat = np.loadtxt( fn, delimiter=',', skiprows=1 )
     # go through and keep only the objects within our field
     fs = 2.778e-4*field_size
@@ -325,7 +313,7 @@ def compare_to_APASS( field_center, field_size, fn='data/apass_in_SDSS.csv', cli
     obs = np.hstack( (g,r,iband,B,V) )
     
     field_center, field_width = gs.find_field( input_coords )
-    c = gs.catalog( field_center, max(field_width), input_coords=input_coords, ignore_sdss=True )
+    c = gs.catalog( field_center, max(field_width), input_coords=input_coords, ignore_sdss=ignore_sdss )
     matches,tmp = gs.identify_matches( input_coords, c.coords )
     
     model_matches = []
@@ -385,7 +373,8 @@ def web_plots_APASS( size=1800, ignore_sdss=True ):
     coords= [(335., .5), (350., .5), (1., .5),
               (15., .5), (30., .5)]
     all_data = np.loadtxt( 'data/apass_all.csv', delimiter=',')
-    medians, mads = [],[]
+    medians = { 'g':[], 'r':[], 'i':[], 'B':[], 'V':[] }
+    mads = { 'g':[], 'r':[], 'i':[], 'B':[], 'V':[] }
     bins = np.linspace(-1, 1, 20)
     fs = 2.778e-4*size
     
@@ -417,49 +406,27 @@ def web_plots_APASS( size=1800, ignore_sdss=True ):
         obs_matches = np.array(obs_matches)
         
         for i,color in enumerate(['g','r','i','B','V']):
-            if color != 'V': continue
-            if color=='g': c='g'
-            elif color=='r': c='r'
-            elif color=='i': c='orange'
-            elif color=='B': c='b'
-            elif color=='V': c='grey'
             i_color = gs.FILTER_PARAMS[color][-1]
 
             error = obs_matches[:, i] - model_matches[:,i_color]
             err = gs.clip_me(error)
             med = np.median( err )
             mad = np.median( np.abs( err-np.median(err) ) )
-            medians.append(med); mads.append(mad)
-
-            plt.hist( err, bins=bins, alpha=.8, linewidth=3, histtype='step', normed=True, label="(%.2f, %.2f)" %(coords[i_field][0], coords[i_field][1]))
+            medians[color].append(med); mads[color].append(mad)
             
-    plt.xlabel('Error in V-band (mag)')
-    plt.ylabel('Normalized Count')
-    leg = plt.legend(loc='best', fancybox=True)
-    leg.get_frame().set_alpha(0.0)
-    plt.savefig("apass_errs_V.png", transparent=True)
+            plt.figure(i)
+            plt.hist( err, bins=bins, alpha=.8, linewidth=3, histtype='step', normed=True, label="(%.2f, %.2f)" %(coords[i_field][0], coords[i_field][1]))
+
+    for i,color in enumerate(['g','r','i','B','V']):
+        plt.figure(i)
+        plt.xlabel('Error in {}-band (mag)'.format(color))
+        plt.ylabel('Normalized Count')
+        leg = plt.legend(loc='best', fancybox=True)
+        leg.get_frame().set_alpha(0.0)
+        plt.savefig("apass_errs_{}.png".format(color), transparent=True)
     return medians, mads
 
-'''
-Error results over 5 fields: coords= [(335., .5), (350., .5), (1., .5),
-          (15., .5), (30., .5)]
 
-# have a note: #
-The BVRI estimates from fields outside the SDSS footprint are of
-rather low quality - their errors appear to be set by the local USNOB1
-photometry (which displays characteristic errors of up to .3 mag).
---- V no sdss ---
-median: .187
-mad: .079
-
---- V sdss ---
-median: .031
-mad: .084
-
--- B sdss ---
-median: .03
-mad: .13
-'''
     
 def check_APASS_phot(size=1800 ):
     '''
@@ -536,22 +503,3 @@ def check_APASS_phot(size=1800 ):
             
     return medians, mads
 
-'''
-Errors over same old five fields, but now between SDSS, APASS:
-
---- B ---
-median: .22
-mad: .08
-
---- g ---
-median: .05
-mad: .11
-
---- r ---
-median: .06
-mad: .06
-
---- i ---
-median: .14
-mad: .11
-'''

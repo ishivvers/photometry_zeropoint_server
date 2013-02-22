@@ -338,25 +338,41 @@ def identify_matches( queried_stars, found_stars, match_radius=3. ):
     ind[ np.isnan(dist) ] = -9999
     return ind, dist
 
-   
-def find_field( star_coords, extend=.0015 ):
+
+def find_field( coords, extend=3. ):
     '''
-    determine the best field for a list of star coordinates,
+    Determine the best field for a list of star coordinates,
     so we can perform only a single query.
     
     star_coords: a list of star coordinates, in decimal degrees
-    extend: the buffer beyond the requested coordinates to add to the field
-      (also in decimal degrees)
+    extend: the buffer beyond the requested coordinates to add to the field in both directions
+      (in arcseconds)
     
-    returns: (coordinates of center in decimal degrees), (RA_width_of_box, DEC_width_of_box) (in arcseconds)
+    returns: (coordinates of center in decimal degrees), (RA_width_of_box, DEC_width_of_box) (both in arcseconds)
     '''
-    ras = star_coords[:,0]
-    decs = star_coords[:,1]
-    width_ra = (max(ras)-min(ras) + 2*extend)
-    center_ra = np.mean(ras)
-    width_dec = (max(decs)-min(decs) + 2*extend)
-    center_dec = np.mean(decs)
-    return (center_ra, center_dec), (width_ra*3600, width_dec*3600.)
+    # the field center
+    r_c = np.deg2rad(min(coords[:,0]) + ( max(coords[:,0]) - min(coords[:,0]) )/2.)
+    d_c = np.deg2rad(min(coords[:,1]) + ( max(coords[:,1]) - min(coords[:,1]) )/2.)
+    
+    # the field widths in each direction
+    r_max = np.deg2rad( np.max(coords[:,0]) )
+    r_min = np.deg2rad( np.min(coords[:,0]) )
+    d_max = np.deg2rad( np.max(coords[:,1]) )
+    d_min = np.deg2rad( np.min(coords[:,1]) )
+    
+    # the conversions between angles in RA,Dec and actual angles
+    X_ra = lambda r,d: (np.cos(d)*np.sin(r-r_c))/(np.cos(d_c)*np.cos(d)*np.cos(r-r_c) +\
+                                              np.sin(d_c)*np.sin(d))
+    Y_dec = lambda r,d: (np.cos(d_c)*np.sin(d)-np.cos(d)*np.sin(d_c)*np.cos(r-r_c))/ \
+                   (np.sin(d_c)*np.sin(d)+np.cos(d_c)*np.cos(d)*np.cos(r-r_c))
+    
+    # the actual widths in rads
+    X_width = np.abs(X_ra(r_max, d_c) - X_ra(r_min, d_c))
+    Y_width = np.abs(Y_dec(r_c, d_max) - Y_dec(r_c, d_min))
+    
+    # convert center to decimal degrees and widths to arcseconds
+    return np.rad2deg([r_c, d_c]), np.rad2deg([X_width, Y_width])*3600 + 2*extend
+
 
 
 def split_field( field_center, field_width, max_size, object_coords=None ):

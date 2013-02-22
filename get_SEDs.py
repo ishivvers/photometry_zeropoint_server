@@ -769,3 +769,63 @@ def zeropoint( input_file, band, output_file=None ):
     
     return zp, mad
 
+
+
+if __name__ == '__main__':
+    '''
+    If this is run directly from the command line, assume it is meant to be an
+    XMLRPC server.  These parts should not be included in distributed versions
+    of the code.
+    '''
+    from SimpleXMLRPCServer import SimpleXMLRPCServer
+    
+    def serve_catalog( (ra,dec), field_size, input_coords ):
+        '''
+        Provides XML access to the catalog class.
+        '''
+        if input_coords != None:
+            input_coords = np.array(input_coords)
+        cat = catalog( (ra,dec), field_size, input_coords=input_coords )
+        
+        out = {}
+        out['coords'] = cat.coords.tolist()
+        out['SEDs'] = cat.SEDs.tolist()
+        out['full_errors'] = cat.full_errors.tolist()
+        out['models'] = cat.models.tolist()
+        out['modes'] = cat.modes.tolist()
+        return out
+    
+    def serve_identify_matches( queried_stars, found_stars ):
+        '''
+        Provide XML access to the identify_matches function.
+        '''
+        matches, dist = identify_matches( np.array(queried_stars), np.array(found_stars) )
+        return matches.tolist(), dist.tolist()
+    
+    def serve_find_field( coords ):
+        '''
+        Provide XML access to the find_field function.
+        '''
+        fc, fw = find_field( np.array(coords) )
+        field_center = [ np.asscalar(x) for x in fc ]
+        field_width = [ np.asscalar(x) for x in fw ]
+        return field_center, field_width
+    
+    def serve_calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags ):
+        '''
+        Provide XML access to the calc_zeropoint function.
+        '''
+        median_zp, mad_zp, matches, zp = calc_zeropoint( np.array(input_coords), np.array(catalog_coords),\
+                        np.array(input_mags), np.array(catalog_mags), return_zps=True )
+        return np.asscalar(median_zp), np.asscalar(mad_zp), matches.tolist(), zp.tolist()
+    
+    server = SimpleXMLRPCServer(("", 5555), allow_none=True)
+    server.register_introspection_functions()
+    server.register_function(serve_catalog, 'catalog')
+    server.register_function(serve_identify_matches, 'identify_matches')
+    server.register_function(serve_find_field, 'find_field')
+    server.register_function(serve_calc_zeropoint, 'calc_zeropoint')
+    
+    print 'starting server...'
+    server.serve_forever()
+    

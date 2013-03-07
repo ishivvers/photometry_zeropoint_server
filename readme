@@ -36,6 +36,13 @@ Catalog entries are accessible as:
 And you can save the catalog to an ascii file:
 c.save_catalog( 'catalog.txt' )
 
+
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
+CURRENT NOTES:
+
+
+
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 

@@ -5,6 +5,9 @@ of online catalogs (USNOB1, 2MASS, SDSS) and synthetic photometry.
 
 Requires:
 - all_models_P.npy, a file produced by assemble_models.py
+
+To Do:
+- verify spherical trig for find_field (projected RA,Dec, or true angles?)
 '''
 
 
@@ -111,7 +114,7 @@ class online_catalog_query():
         #  defined box size, return only basic parameters, and
         #  sort by distance from coordinates, and return only those
         #  sources brighter than trim_mag
-        request = 'findsdss8 -c "{} {}" -bs {} -lmr 0,{} -e0 -sr -m 50000'.format( ra, dec, boxsize, trim_mag )
+        request = 'findsdss8 -c "{} {}" -bs {} -lmr 0,{} -e0 -sr -m 1000000'.format( ra, dec, boxsize, trim_mag )
         out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
         o,e = out.communicate()
         # parse the response
@@ -179,7 +182,7 @@ class online_catalog_query():
         #  defined box size, return only basic parameters, and 
         #  sort by distance from coordinates, and return a 
         #  maximum of 10000 sources (i.e. return everything)
-        request = 'find2mass -c {} {} -bs {} -eb -sr -m 50000'.format( ra, dec, boxsize )
+        request = 'find2mass -c {} {} -bs {} -eb -sr -m 1000000'.format( ra, dec, boxsize )
         out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
         o,e = out.communicate()
         # parse the response
@@ -268,7 +271,7 @@ class online_catalog_query():
         #  defined box size, return only basic parameters, and 
         #  sort by distance from coordinates, and return a maximum
         #  of 10000 objects (i.e. return everything)
-        request = 'findusnob1 -c {} {} -bs {} -eb -sr -m 50000'.format( ra, dec, boxsize )
+        request = 'findusnob1 -c {} {} -bs {} -eb -sr -m 1000000'.format( ra, dec, boxsize )
         out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
         o,e = out.communicate()
         usnob1_objects = self._parse_usnob1(o)

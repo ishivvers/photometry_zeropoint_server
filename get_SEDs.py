@@ -322,6 +322,10 @@ def identify_matches( queried_stars, found_stars, match_radius=3. ):
     indices - an array of the indices (in found_stars) of the best match. Invalid (negative) index if no matches found.
     distances - an array of the distances to the closest match. NaN if no match found.
     '''
+    # make sure inputs are arrays
+    queried_stars = np.array(queried_stars)
+    found_stars = np.array(found_stars)
+    
     ra1, dec1 = queried_stars[:,0], queried_stars[:,1]
     ra2, dec2 = found_stars[:,0], found_stars[:,1]
     dist = 2.778e-4*match_radius # convert arcseconds into degrees 
@@ -353,6 +357,8 @@ def find_field( coords, extend=3. ):
     
     returns: (coordinates of center in decimal degrees), (RA_width_of_box, DEC_width_of_box) (both in arcseconds)
     '''
+    coords = np.array(coords) #make sure the input coords are an array
+    
     # the field center
     r_c = np.deg2rad(min(coords[:,0]) + ( max(coords[:,0]) - min(coords[:,0]) )/2.)
     d_c = np.deg2rad(min(coords[:,1]) + ( max(coords[:,1]) - min(coords[:,1]) )/2.)
@@ -374,8 +380,7 @@ def find_field( coords, extend=3. ):
     Y_width = np.abs(Y_dec(r_c, d_max) - Y_dec(r_c, d_min))
     
     # convert center to decimal degrees and widths to arcseconds
-    return np.rad2deg([r_c, d_c]), np.rad2deg([X_width, Y_width])*3600 + 2*extend
-
+    return np.rad2deg([r_c, d_c]).tolist(), (np.rad2deg([X_width, Y_width])*3600 + 2*extend).tolist()
 
 
 def split_field( field_center, field_width, max_size, object_coords=None ):
@@ -390,6 +395,9 @@ def split_field( field_center, field_width, max_size, object_coords=None ):
         
     Returns: list of new field centers, width of new fields (in arcseconds)
     '''
+    if object_coords != None:
+        object_coords = np.array(object_coords)
+        
     a2d = 2.778e-4 #conversion between arcseconds & degrees
     
     R_n_tile = np.ceil(field_width[0]/max_size).astype(int) # number of tiles needed in RA
@@ -567,7 +575,10 @@ class catalog():
     def __init__( self, field_center, field_width, input_coords=None, ignore_sdss=False ):
         self.field_center = field_center
         self.field_width = field_width
-        self.input_coords = input_coords
+        if input_coords != None:
+            self.input_coords = np.array(input_coords)
+        else:
+            self.input_coords = input_coords
         self.ignore_sdss = ignore_sdss
         self.coords = []
         self.SEDs = []
@@ -715,6 +726,12 @@ def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, clip
     
     Returns: zeropoint (mags), the median average deviation, and a list of matched indices for input and catalog sources.
     '''
+    # make sure all inputs are numpy arrays
+    input_coords = np.array(input_coords)
+    catalog_coords = np.array(catalog_coords)
+    input_mags = np.array(input_mags)
+    catalog_mags = np.array(input_mags)
+    
     matches, tmp = identify_matches( input_coords, catalog_coords )
     matched_inputs = input_mags[ matches>=0 ]
     matched_catalogs = catalog_mags[ matches[ matches>=0 ] ]
@@ -782,15 +799,24 @@ if __name__ == '__main__':
     '''
     from SimpleXMLRPCServer import SimpleXMLRPCServer
     
-    def serve_catalog( (ra,dec), field_size, input_coords ):
+    class special_dict(dict):
+        '''
+        A class that offers dictionary lookup through class attributes,
+         so that interaction over the xmlrpc server is the same as through
+         the local class.
+        '''
+        def __getattr__(self,name):
+            return self[name]
+        def __setattr__(self,name,value):
+            self[name] = value
+    
+    def serve_catalog( (ra,dec), field_size, input_coords=None ):
         '''
         Provides XML access to the catalog class.
         '''
-        if input_coords != None:
-            input_coords = np.array(input_coords)
         cat = catalog( (ra,dec), field_size, input_coords=input_coords )
         
-        out = {}
+        out = special_dict()
         out['coords'] = cat.coords.tolist()
         out['SEDs'] = cat.SEDs.tolist()
         out['full_errors'] = cat.full_errors.tolist()
@@ -802,14 +828,14 @@ if __name__ == '__main__':
         '''
         Provide XML access to the identify_matches function.
         '''
-        matches, dist = identify_matches( np.array(queried_stars), np.array(found_stars) )
+        matches, dist = identify_matches( queried_stars, found_stars )
         return matches.tolist(), dist.tolist()
     
     def serve_find_field( coords ):
         '''
         Provide XML access to the find_field function.
         '''
-        fc, fw = find_field( np.array(coords) )
+        fc, fw = find_field( coords )
         field_center = [ np.asscalar(x) for x in fc ]
         field_width = [ np.asscalar(x) for x in fw ]
         return field_center, field_width
@@ -818,8 +844,8 @@ if __name__ == '__main__':
         '''
         Provide XML access to the calc_zeropoint function.
         '''
-        median_zp, mad_zp, matches, zp = calc_zeropoint( np.array(input_coords), np.array(catalog_coords),\
-                        np.array(input_mags), np.array(catalog_mags), return_zps=True )
+        median_zp, mad_zp, matches, zp = calc_zeropoint( input_coords, catalog_coords,\
+                        input_mags, catalog_mags, return_zps=True )
         return np.asscalar(median_zp), np.asscalar(mad_zp), matches.tolist(), zp.tolist()
     
     server = SimpleXMLRPCServer(("", 5555), allow_none=True)

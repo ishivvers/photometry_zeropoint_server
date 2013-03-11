@@ -445,7 +445,7 @@ def _error_C(C, model, obs, weights):
     return np.sum( weights*(nm-obs)**2 )
 
 
-def choose_model( obs, mask, models=MODELS ):
+def choose_model( obs, mask, models=MODELS, allow_cut=False ):
     '''
     Find and return the best model for obs.
     Do this by fitting to all magnitudes weighted by error.
@@ -458,6 +458,7 @@ def choose_model( obs, mask, models=MODELS ):
            in order: [u,g,r,i,z,y,B,R,J,H,K]
     models: an array of modeled SEDs, where 0th entry is temperature
              of the model, and the rest are magnitudes
+    allow_cut: if true, allows one datapoint to be cut from fit
     '''
     # mask is an array used to choose which modeled magnitudes
     #  correspond to the included observations.
@@ -481,21 +482,22 @@ def choose_model( obs, mask, models=MODELS ):
     i_best = np.argmin(sum_sqrs)
     best_model = models[1:][ i_best ]
     
-    # if there's one point more than <max_diff> away from best model, try again without that point
-    #  (set that weight to zero, and return the index of the cut value)
     i_cut = None
-    if max( np.abs(best_model[mask] - zerod_mags) ) > 1.:
-        i_cut = np.argmax(np.abs(best_model[mask] - zerod_mags))
-        weights[i_cut] = 0.
-        # Go through all models again, with new weights
-        sum_sqrs, Cs = [], []
-        for model in models[1:]:
-            res = fmin_bfgs( _error_C, 0., args=(model[mask], zerod_mags, weights), full_output=True, disp=False )
-            Cs.append(res[0][0])
-            sum_sqrs.append(res[1])
-            
-        i_best = np.argmin(sum_sqrs)
-        best_model = models[1:][ i_best ]
+    if allow_cut:
+        # if there's one point more than <max_diff> away from best model, try again without that point
+        #  (set that weight to zero, and return the index of the cut value)
+        if max( np.abs(best_model[mask] - zerod_mags) ) > 1.:
+            i_cut = np.argmax(np.abs(best_model[mask] - zerod_mags))
+            weights[i_cut] = 0.
+            # Go through all models again, with new weights
+            sum_sqrs, Cs = [], []
+            for model in models[1:]:
+                res = fmin_bfgs( _error_C, 0., args=(model[mask], zerod_mags, weights), full_output=True, disp=False )
+                Cs.append(res[0][0])
+                sum_sqrs.append(res[1])
+                
+            i_best = np.argmin(sum_sqrs)
+            best_model = models[1:][ i_best ]
         
     # now add back in the Jmag value to get a model for the non-zeroed observations
     C = Cs[i_best] + Jmag
@@ -524,10 +526,12 @@ def fit_sources( inn ):
     mode, obs = inn
     if mode == 0: # sdss+2mass
         mask = [1,1,1,1,1, 0, 0,0,0,0, 1,1,1]
+        allow_cut = True
     elif mode == 1: # usnob+2mass
         mask = [0,0,0,0,0, 0, 1,0,1,0, 1,1,1]
+        allow_cut = False
     mask = np.array(mask).astype(bool)
-    model, C, index, err, i_cut = choose_model( obs, mask )
+    model, C, index, err, i_cut = choose_model( obs, mask, allow_cut=allow_cut )
     
     sed = np.empty(len(mask))
     full_errs = np.empty(len(mask))
@@ -799,29 +803,19 @@ if __name__ == '__main__':
     '''
     from SimpleXMLRPCServer import SimpleXMLRPCServer
     
-    class special_dict(dict):
-        '''
-        A class that offers dictionary lookup through class attributes,
-         so that interaction over the xmlrpc server is the same as through
-         the local class.
-        '''
-        def __getattr__(self,name):
-            return self[name]
-        def __setattr__(self,name,value):
-            self[name] = value
-    
     def serve_catalog( (ra,dec), field_size, input_coords=None ):
         '''
         Provides XML access to the catalog class.
         '''
         cat = catalog( (ra,dec), field_size, input_coords=input_coords )
         
-        out = special_dict()
+        out = {}
         out['coords'] = cat.coords.tolist()
         out['SEDs'] = cat.SEDs.tolist()
         out['full_errors'] = cat.full_errors.tolist()
-        out['models'] = cat.models.tolist()
-        out['modes'] = cat.modes.tolist()
+        # some gymnastics to get all of the types as floats instead of numpy types
+        out['models'] = np.array(cat.models).tolist()
+        out['modes'] = np.array(cat.modes).tolist()
         return out
     
     def serve_identify_matches( queried_stars, found_stars ):

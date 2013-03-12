@@ -717,7 +717,7 @@ def clip_me( inn, sig_clip=3., max_iter=5, convergence=.02 ):
     return inn
 
 
-def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, clip=True, return_zps=False ):
+def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, clip=True, return_zps=True ):
     '''
     Calculate the zeropoint for a set of input stars and set of catalog stars.
     
@@ -734,7 +734,7 @@ def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, clip
     input_coords = np.array(input_coords)
     catalog_coords = np.array(catalog_coords)
     input_mags = np.array(input_mags)
-    catalog_mags = np.array(input_mags)
+    catalog_mags = np.array(catalog_mags)
     
     matches, tmp = identify_matches( input_coords, catalog_coords )
     matched_inputs = input_mags[ matches>=0 ]
@@ -830,16 +830,16 @@ if __name__ == '__main__':
         Provide XML access to the find_field function.
         '''
         fc, fw = find_field( coords )
-        field_center = [ np.asscalar(x) for x in fc ]
-        field_width = [ np.asscalar(x) for x in fw ]
-        return field_center, field_width
+        #field_center = [ np.asscalar(x) for x in fc ]
+        #field_width = [ np.asscalar(x) for x in fw ]
+        return fc, fw
     
     def serve_calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags ):
         '''
         Provide XML access to the calc_zeropoint function.
         '''
         median_zp, mad_zp, matches, zp = calc_zeropoint( input_coords, catalog_coords,\
-                        input_mags, catalog_mags, return_zps=True )
+                        input_mags, catalog_mags )
         return np.asscalar(median_zp), np.asscalar(mad_zp), matches.tolist(), zp.tolist()
     
     server = SimpleXMLRPCServer(("", 5555), allow_none=True)

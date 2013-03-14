@@ -437,9 +437,10 @@ def _error_C(C, model, obs, weights):
     '''
     C: number, a constant akin to distance modulus
     model: array-like, model mags
-    real: array-like, observed mags
+    obs: array-like, observed mags
+    weights: array-like, 1/(observation errors)
     
-    returns: sum squared errors
+    returns: weighted sum squared errors
     '''
     nm = model+C
     return np.sum( weights*(nm-obs)**2 )
@@ -472,7 +473,7 @@ def choose_model( obs, mask, models=MODELS, allow_cut=False ):
     weights = 1./obs[1::2]
     
     # Go through all models and choose the one with the most similar SED
-    #  Keep track of the sum_squared error, as returned by _error_C()
+    #  Keep track of the error, as returned by _error_C()
     sum_sqrs, Cs = [], []
     for model in models[1:]:
         res = fmin_bfgs( _error_C, 0., args=(model[mask], zerod_mags, weights), full_output=True, disp=False )
@@ -484,9 +485,10 @@ def choose_model( obs, mask, models=MODELS, allow_cut=False ):
     
     i_cut = None
     if allow_cut:
+        max_diff = 1.
         # if there's one point more than <max_diff> away from best model, try again without that point
         #  (set that weight to zero, and return the index of the cut value)
-        if max( np.abs(best_model[mask] - zerod_mags) ) > 1.:
+        if max( np.abs(best_model[mask] - zerod_mags) ) > max_diff:
             i_cut = np.argmax(np.abs(best_model[mask] - zerod_mags))
             weights[i_cut] = 0.
             # Go through all models again, with new weights
@@ -503,16 +505,12 @@ def choose_model( obs, mask, models=MODELS, allow_cut=False ):
     C = Cs[i_best] + Jmag
     
     # return all magnitudes for best model, the offset C, the index, and a quality metric for the best fit
-    #  The quality metric is the average error between the best model and the observations
-    weights = np.ones_like(mags)
+    #  The quality metric is the reduced Chi^2 statistic (assuming model + distance are two fitting parameters).
+    sum_sqr_err = sum_sqrs[i_best]
     if i_cut != None:
-        # handle the errors properly if a value was dropped
-        weights[i_cut] = 0.
-        sum_sqr_err = _error_C( C, best_model[mask], mags, weights )
-        metric = (sum_sqr_err/(len(mags)-1))**.5
+        metric = sum_sqr_err/(len(mags)-1 - 2)
     else:
-        sum_sqr_err = _error_C( C, best_model[mask], mags, weights )
-        metric = (sum_sqr_err/len(mags))**.5
+        metric = sum_sqr_err/(len(mags) - 2)
     return (best_model[1:] + C, C, best_model[0], metric, i_cut )
 
 
@@ -529,7 +527,7 @@ def fit_sources( inn ):
         allow_cut = True
     elif mode == 1: # usnob+2mass
         mask = [0,0,0,0,0, 0, 1,0,1,0, 1,1,1]
-        allow_cut = False
+        allow_cut = True
     mask = np.array(mask).astype(bool)
     model, C, index, err, i_cut = choose_model( obs, mask, allow_cut=allow_cut )
     
@@ -574,7 +572,7 @@ class catalog():
      ignore_sdss: if True, will not use any SDSS magnitudes in modeling. Used for testing.
     '''
     MAX_SIZE = 7200 # max size of largest single query
-    ERR_CUT  = .5   # maximum fitting error allowed
+    ERR_CUT  = 5   # maximum reduced chi^2 to keep a fit
     
     def __init__( self, field_center, field_width, input_coords=None, ignore_sdss=False ):
         self.field_center = field_center
@@ -657,6 +655,7 @@ class catalog():
         for i,row in enumerate(results):
             # each row is (sed, full_errs, model_err, index)
             if row[2] > self.ERR_CUT: #apply quality-of-fit cut
+                #print 'cut:', row[2]
                 pass
             else:
                 self.coords.append( object_coords[i] )

@@ -40,7 +40,7 @@ FILTER_PARAMS =  {'u': (3551., 8.6387e-9, 0), 'g': (4686., 4.9607e-9, 1),
                   'r': (6165., 2.8660e-9, 2), 'i': (7481., 1.9464e-9, 3),
                   'z': (8931., 1.3657e-9, 4), 'y': (10091., 1.0696e-9, 5),
                   'B': (4400., 6.6000e-9, 6), 'V': (5490., 3.6100e-9, 7),
-                  'R':(6500., 2.1900e-9, 7),  'I': (7885., 1.1900e-9, 9),
+                  'R':(6500., 2.1900e-9, 8),  'I': (7885., 1.1900e-9, 9),
                   'J':(12350., 3.1353e-10, 10), 'H':(16620., 1.1121e-10, 11),
                   'K':(21590., 4.2909e-11, 12)}
 
@@ -572,7 +572,7 @@ class catalog():
      ignore_sdss: if True, will not use any SDSS magnitudes in modeling. Used for testing.
     '''
     MAX_SIZE = 7200 # max size of largest single query
-    ERR_CUT  = 5   # maximum reduced chi^2 to keep a fit
+    ERR_CUT  = (10.,5.)   # maximum reduced chi^2 to keep a fit (SDSS, USNOB)
     
     def __init__( self, field_center, field_width, input_coords=None, ignore_sdss=False ):
         self.field_center = field_center
@@ -588,6 +588,7 @@ class catalog():
         self.model_errors = []
         self.models = []
         self.modes = []
+        self.numcut = 0
         
         if field_width > self.MAX_SIZE:
             # simply don't allow queries that are too large
@@ -654,8 +655,8 @@ class catalog():
         # now go through results and construct the final values
         for i,row in enumerate(results):
             # each row is (sed, full_errs, model_err, index)
-            if row[2] > self.ERR_CUT: #apply quality-of-fit cut
-                #print 'cut:', row[2]
+            if row[2] > self.ERR_CUT[modes[i]]: #apply quality-of-fit cut
+                self.numcut += 1
                 pass
             else:
                 self.coords.append( object_coords[i] )
@@ -668,6 +669,7 @@ class catalog():
         self.coords = np.array(self.coords)
         self.SEDs = np.array(self.SEDs)
         self.full_errors = np.array(self.full_errors)
+        print 'cut', self.numcut, 'sources'
     
     
     def save_catalog( self, file_name ):

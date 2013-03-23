@@ -788,7 +788,7 @@ def compare_to_Stetson( field, ignore_sdss=True, clip=True, colors=['b','g','r',
     plt.show()
 
 
-FIELDS = ['IC1613', 'L112', 'L113', 'L92', 'L95', 'PG0231']
+FIELDS = ['L112', 'L113', 'L92', 'L95', 'PG0231'] #'IC1613', 
 def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','orange','grey','yellow'] ):
     
     medians = { 'B':[], 'V':[], 'R':[], 'I':[] }
@@ -887,11 +887,87 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
 
 
 
+if __name__ == '__main__':
+    # construct a dictionary of linear interpolation functions
+    #  used to construct errors for catalogs.
+    # saves to file a dictionary of form:
+    # err_dict[mode][band] = f(chi^2)
+    import pickle
+    err_dict = {}
+    
+    # first, mode 1 (USNOB)
+    err_dict[1] = {}
+    dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
+    delt_bin = dbins[1:]-dbins[:-1]
+    x = list(dbins[1:]-delt_bin/2)
+    x = [dbins[0]] + x + [dbins[-1]]
+    
+    med,mad,onesig = web_plots_SDSS(size=3600.)
+    for band in onesig.keys():
+        errs = np.mean( np.array(onesig[band]), axis=0 )
+        err_dict[1][band] = interp1d(x, errs)
+    
+    med,mad,onesig = web_plots_UKIDSS(size=3600.)
+    errs = np.mean( np.array(onesig), axis=0 )
+    err_dict[1]['y'] = interp1d(x, errs)
+    
+    med,mad,onesig = web_plots_Stetson()
+    for band in onesig.keys():
+        if band == 'B' or band == 'R': continue
+        errs = np.mean( np.array(onesig[band]), axis=0 )
+        err_dict[1][band] = interp1d(x, errs)
+    
+    # now, mode 0 (SDSS)
+    err_dict[0] = {}
+    dbins = np.array( [0, .5, 1., 2., 5., 8.] )
+    delt_bin = dbins[1:]-dbins[:-1]
+    x = list(dbins[1:]-delt_bin/2)
+    x = [dbins[0]] + x + [dbins[-1]]
+    
+    med,mad,onesig = web_plots_UKIDSS(size=3600., ignore_sdss=False)
+    errs = np.mean( np.array(onesig), axis=0 )
+    err_dict[0]['y'] = interp1d(x, errs)
+    
+    med,mad,onesig = web_plots_Stetson(ignore_sdss=True)
+    for band in onesig.keys():
+        errs = np.mean( np.array(onesig[band]), axis=0 )
+        err_dict[0][band] = interp1d(x, errs)
+    
+    # now save our error dictionary to file
+    pickle.dump( err_dict, open('err_dict.p','w') )
+    
+        
+        
 '''
 ERROR ANALYSIS RESULTS
 
 May 22, 2013
 
 
+# One-sigma errors on the median value for a 1-degree field #
+
+SDSS from USNOB
+ u - 0.34
+ g - 0.30
+ r - 0.18
+ i - 0.12
+ z - 0.07
+
+UKIDSS from USNOB
+ y - 0.03
+UKIDSS from SDSS
+ y - 0.03
+
+Stetson from USNOB
+ B - 0.48
+ V - 0.24
+ R - 0.14
+ I - 0.10
+
+Stetson from SDSS
+ B - 0.07
+ V - 0.07
+ R - 0.05
+ I - 0.03
 
 '''

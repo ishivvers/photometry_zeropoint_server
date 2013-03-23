@@ -51,7 +51,7 @@ def compare_to_SDSS( field_center, field_width, clip=True, colors=COLORS ):
         err = obs_matches[:,i] - model_matches[:,i_filt]
         plt.scatter( model_err, np.abs(err), color=ccc, alpha=.5, marker='+' )
         
-        dbins = np.array( [0, .25, .5, 1., 1.5, 2., 5.] )
+        dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
         delt_bin = dbins[1:]-dbins[:-1]
         inbin = np.digitize( model_err, dbins )
         onesigs = []
@@ -136,7 +136,7 @@ def web_plots_SDSS( size=1800., coords=COORDS ):
             
             plt.figure(i+5)
             plt.scatter( model_err, np.abs(err), alpha=.5, marker='+', c=ccc )
-            dbins = np.array( [0, .25, .5, 1., 1.5, 2., 5.] )
+            dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
             delt_bin = dbins[1:]-dbins[:-1]
             inbin = np.digitize( model_err, dbins )
             onesigs = []
@@ -212,7 +212,7 @@ def compare_to_USNOB( field_center, field_width, clip=True ):
         err = obs_matches[:,i] - model_matches[:,i_filt]
         plt.scatter( model_err, np.abs(err), color=ccc, alpha=.5, marker='+')
         
-        dbins = np.array( [0, .5, 1., 2., 5., 7.5, 10.] )
+        dbins = np.array( [0, .5, 1., 2., 5., 8.] )
         delt_bin = dbins[1:]-dbins[:-1]
         inbin = np.digitize( model_err, dbins )
         onesigs = []
@@ -304,9 +304,9 @@ def compare_to_UKIDSS( field_center, field_size, fn='data/ukidss_all.csv', clip=
     plt.scatter( model_err, np.abs(err), alpha=.5, marker='+' )
     
     if ignore_sdss:
-        dbins = np.array( [0, .25, .5, 1., 1.5, 2., 5.] )
+        dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
     else:
-        dbins = np.array( [0, .5, 1., 2., 5., 7.5, 10.] )
+        dbins = np.array( [0, .5, 1., 2., 5., 8.] )
     delt_bin = dbins[1:]-dbins[:-1]
     inbin = np.digitize( model_err, dbins )
     onesigs = []
@@ -389,9 +389,9 @@ def web_plots_UKIDSS( size=1800., ignore_sdss=True, coords=COORDS ):
         plt.figure(2)
         plt.scatter( model_err, np.abs(err), c=ccc, alpha=.5, marker='+' )
         if ignore_sdss:
-            dbins = np.array( [0, .25, .5, 1., 1.5, 2., 5.] )
+            dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
         else:
-            dbins = np.array( [0, .5, 1., 2., 5., 7.5, 10.] )
+            dbins = np.array( [0, .5, 1., 2., 5., 8.] )
         delt_bin = dbins[1:]-dbins[:-1]
         inbin = np.digitize( model_err, dbins )
         onesigs = []
@@ -480,9 +480,9 @@ def compare_to_APASS( field_center, field_size, fn='data/apass_all.csv', ignore_
         plt.scatter( merr, np.abs(err), c=ccc, alpha=.5, marker='+')
         
         if ignore_sdss:
-            dbins = np.array( [0, .25, .5, 1., 1.5, 2., 5.] )
+            dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
         else:
-            dbins = np.array( [0, .5, 1., 2., 5., 7.5, 10.] )
+            dbins = np.array( [0, .5, 1., 2., 5., 8.] )
         delt_bin = dbins[1:]-dbins[:-1]
         inbin = np.digitize( merr, dbins )
         medians = []
@@ -580,9 +580,9 @@ def web_plots_APASS( size=1800, ignore_sdss=True, coords=COORDS ):
             plt.scatter( merr, np.abs(err), c=ccc, alpha=.5, marker='+')
             
             if ignore_sdss:
-                dbins = np.array( [0, .25, .5, 1., 1.5, 2., 5.] )
+                dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
             else:
-                dbins = np.array( [0, .5, 1., 2., 5., 7.5, 10.] )
+                dbins = np.array( [0, .5, 1., 2., 5., 8.] )
             delt_bin = dbins[1:]-dbins[:-1]
             inbin = np.digitize( merr, dbins )
             onesigs = []
@@ -747,9 +747,9 @@ def compare_to_Stetson( field, ignore_sdss=True, clip=True, colors=['b','g','r',
         plt.scatter( merr, np.abs(err), c=ccc, alpha=.5, marker='+')
         
         if ignore_sdss:
-            dbins = np.array( [0, .25, .5, 1., 1.5, 2., 5.] )
+            dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
         else:
-            dbins = np.array( [0, .5, 1., 2., 5., 7.5, 10.] )
+            dbins = np.array( [0, .5, 1., 2., 5., 8.] )
         delt_bin = dbins[1:]-dbins[:-1]
         inbin = np.digitize( merr, dbins )
         onesigs = []
@@ -844,9 +844,9 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
             plt.scatter( merr, np.abs(err), c=ccc, alpha=.5, marker='+')
             
             if ignore_sdss:
-                dbins = np.array( [0, .25, .5, 1., 1.5, 2., 5.] )
+                dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
             else:
-                dbins = np.array( [0, .5, 1., 2., 5., 7.5, 10.] )
+                dbins = np.array( [0, .5, 1., 2., 5., 8.] )
             delt_bin = dbins[1:]-dbins[:-1]
             inbin = np.digitize( merr, dbins )
             onesigs = []
@@ -884,3 +884,14 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
         plt.savefig(imdir+"stetson_errs_scatp_%c.png" %(band), transparent=True)
     return medians, mads, onesig_errs
 
+
+
+
+'''
+ERROR ANALYSIS RESULTS
+
+May 22, 2013
+
+
+
+'''

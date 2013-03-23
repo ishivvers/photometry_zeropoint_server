@@ -572,7 +572,7 @@ class catalog():
      ignore_sdss: if True, will not use any SDSS magnitudes in modeling. Used for testing.
     '''
     MAX_SIZE = 7200 # max size of largest single query
-    ERR_CUT  = (10.,5.)   # maximum reduced chi^2 to keep a fit (SDSS, USNOB)
+    ERR_CUT  = (8., 2.5)   # maximum reduced chi^2 to keep a fit (SDSS, USNOB)
     
     def __init__( self, field_center, field_width, input_coords=None, ignore_sdss=False ):
         self.field_center = field_center
@@ -669,7 +669,7 @@ class catalog():
         self.coords = np.array(self.coords)
         self.SEDs = np.array(self.SEDs)
         self.full_errors = np.array(self.full_errors)
-        print 'cut', self.numcut, 'sources'
+        print 'cut', self.numcut, 'sources out of', len(results)
     
     
     def save_catalog( self, file_name ):

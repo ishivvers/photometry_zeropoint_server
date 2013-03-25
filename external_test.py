@@ -888,10 +888,13 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
 
 
 if __name__ == '__main__':
-    # construct a dictionary of linear interpolation functions
+    # construct a dictionary of the mean errors,
     #  used to construct errors for catalogs.
     # saves to file a dictionary of form:
-    # err_dict[mode][band] = f(chi^2)
+    # err_dict[mode][band] = y_array
+    # err_dict[mode]['x'] = x_array
+    #  then err = f(chi^2) = interp1d(x_array, y_array)
+    
     import pickle
     err_dict = {}
     
@@ -901,12 +904,14 @@ if __name__ == '__main__':
     delt_bin = dbins[1:]-dbins[:-1]
     x = list(dbins[1:]-delt_bin/2)
     x = [dbins[0]] + x + [dbins[-1]]
+    err_dict[1]['x'] = x
     
-    med,mad,onesig = web_plots_SDSS(size=3600.)
+    med,mad,onesig = web_plots_SDSS(size=900.)
     for band in onesig.keys():
         errs = np.mean( np.array(onesig[band]), axis=0 )
-        err_dict[1][band] = interp1d(x, errs)
-    
+        err_dict[1][band] = errs
+        break
+        
     med,mad,onesig = web_plots_UKIDSS(size=3600.)
     errs = np.mean( np.array(onesig), axis=0 )
     err_dict[1]['y'] = interp1d(x, errs)
@@ -915,7 +920,7 @@ if __name__ == '__main__':
     for band in onesig.keys():
         if band == 'B' or band == 'R': continue
         errs = np.mean( np.array(onesig[band]), axis=0 )
-        err_dict[1][band] = interp1d(x, errs)
+        err_dict[1][band] = errs
     
     # now, mode 0 (SDSS)
     err_dict[0] = {}
@@ -923,16 +928,17 @@ if __name__ == '__main__':
     delt_bin = dbins[1:]-dbins[:-1]
     x = list(dbins[1:]-delt_bin/2)
     x = [dbins[0]] + x + [dbins[-1]]
+    err_dict[0]['x'] = x
     
     med,mad,onesig = web_plots_UKIDSS(size=3600., ignore_sdss=False)
     errs = np.mean( np.array(onesig), axis=0 )
-    err_dict[0]['y'] = interp1d(x, errs)
+    err_dict[0]['y'] = errs
     
     med,mad,onesig = web_plots_Stetson(ignore_sdss=True)
     for band in onesig.keys():
         errs = np.mean( np.array(onesig[band]), axis=0 )
-        err_dict[0][band] = interp1d(x, errs)
-    
+        err_dict[0][band] = errs
+        
     # now save our error dictionary to file
     pickle.dump( err_dict, open('err_dict.p','w') )
     

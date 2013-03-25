@@ -906,15 +906,14 @@ if __name__ == '__main__':
     x = [dbins[0]] + x + [dbins[-1]]
     err_dict[1]['x'] = x
     
-    med,mad,onesig = web_plots_SDSS(size=900.)
+    med,mad,onesig = web_plots_SDSS(size=3600.)
     for band in onesig.keys():
         errs = np.mean( np.array(onesig[band]), axis=0 )
         err_dict[1][band] = errs
-        break
         
     med,mad,onesig = web_plots_UKIDSS(size=3600.)
     errs = np.mean( np.array(onesig), axis=0 )
-    err_dict[1]['y'] = interp1d(x, errs)
+    err_dict[1]['y'] = errs
     
     med,mad,onesig = web_plots_Stetson()
     for band in onesig.keys():

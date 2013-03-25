@@ -17,10 +17,12 @@ To Do:
 import numpy as np
 from subprocess import Popen, PIPE
 from scipy.optimize import fmin_bfgs
+from scipy.interpolate import interp1d
 import scipy.spatial.kdtree
 from os.path import isfile
 from threading import Thread
 from time import time, strftime
+import pickle
 
 import multiprocessing as mp
 N_CORES = mp.cpu_count()  # use all the cpus you have
@@ -33,8 +35,21 @@ try:
 except:
     raise IOError('cannot find models file')
 
+try:
+    err_dict = pickle.load(open('err_dict.p', 'r'))
+    ERR_FUNCTIONS = {}
+    for mode in [0,1]:
+        ERR_FUNCTIONS[mode] = {}
+        ERR_FUNCTIONS[mode]['range'] = (err_dict[mode]['x'][0], err_dict[mode]['x'][-1])
+        for band in err_dict[mode].keys():
+            if band == 'x': continue
+            ERR_FUNCTIONS[mode][band] = interp1d( err_dict[mode]['x'], err_dict[mode][band] )
+except:
+    raise IOError('cannot find error dictionary file')
+
 
 ALL_FILTERS = ['u','g','r','i','z','y','B','V','R','I','J','H','K']
+npALL_FILTERS = np.array(ALL_FILTERS) # it's helpful to have a version that works with numpy masks
 # band: (central wavelength (AA), zeropoint (erg/s/cm^2/AA), catalog index)
 FILTER_PARAMS =  {'u': (3551., 8.6387e-9, 0), 'g': (4686., 4.9607e-9, 1),
                   'r': (6165., 2.8660e-9, 2), 'i': (7481., 1.9464e-9, 3),
@@ -514,7 +529,7 @@ def choose_model( obs, mask, models=MODELS, allow_cut=False ):
     return (best_model[1:] + C, C, best_model[0], metric, i_cut )
 
 
-def fit_sources( inn ):
+def fit_sources( inn, f_err=ERR_FUNCTIONS ):
     '''
     Wrapper function for choose_model to facilitate multiprocessor
      use ( in catalog.produce_catalog() )
@@ -538,14 +553,21 @@ def fit_sources( inn ):
     full_errs[mask] = obs[1::2]
     # fill in rest with modeled magnitudes
     sed[~mask] = model[~mask]
-    full_errs[~mask] = err
+    # and return errors as estimated by model Chi^2
+    for band in npALL_FILTERS[~mask]:
+        i_band = FILTER_PARAMS[band][-1]
+        full_errs[i_band] = f_err[mode][band]( min(err, f_err[mode]['range'][1]) )
     
     # if a value was cut while fitting, return the modeled magnitude instead of the observed
     if i_cut != None:
         # do some gymnastics to get the cut passband since it's behind a mask
-        cut_band = ALL_FILTERS.index( np.array(ALL_FILTERS)[mask][i_cut] )
-        sed[cut_band] = model[mask][i_cut]
-        full_errs[cut_band] = err
+        cut_band = npALL_FILTERS[mask][i_cut]
+        i_cut_band = FILTER_PARAMS[cut_band][-1]
+        sed[i_cut_band] = model[mask][i_cut]
+        # For now simply report the original error on the observation, though this is wrong.
+        # Should run a series of tests seeing how good each observed band (in each mode)
+        #  is predicted by the rest of the observed bands, and put those results into f_err as below
+        #full_errs[i_cut_band] = f_err[mode][cut_band]( min(err, f_err[mode]['range'][1]) )
         
     return ( sed, full_errs, err, index )
 
@@ -683,16 +705,17 @@ def save_catalog( coordinates, seds, errors, modes, file_name ):
     Save an output ASCII file of the catalog.
     file_name: output file to create
     '''
+    
     fff = open(file_name,'w')
     fff.write('# Observed/modeled SEDs produced by get_SEDs.py \n' +
               '# Generated: {}\n'.format(strftime("%H:%M %B %d, %Y")) +
               '# modes: 0 -> SDSS+2MASS; 1 -> USNOB1+2MASS\n' +
-              "# " + "{}      {}       ".format("RA","DEC") + (' '*6).join(ALL_FILTERS) + \
-              " "*6 + ' '.join([val+"_err" for val in ALL_FILTERS]) + "  Mode\n")
+              "# " + "RA".ljust(8) + "DEC".ljust(10) + "".join([f.ljust(8) for f in ALL_FILTERS]) + \
+              "".join([(f+"_err").ljust(8) for f in ALL_FILTERS]) + "Mode\n")
     for i,row in enumerate(seds):
-        row_txt = " ".join(map(lambda x: "%.6f"%x, coordinates[i]))+" "+ \
-                  " ".join(map(lambda x: "%.3f"%x, row))+" "+ \
-                  " ".join(map(lambda x: "%.3f"%x, errors[i]))+" "+ \
+        row_txt = "".join([ s.ljust(10) for s in map(lambda x: "%.6f"%x, coordinates[i]) ]) +\
+                  "".join([ s.ljust(8) for s in map(lambda x: "%.3f"%x, row) ]) +\
+                  "".join([ s.ljust(8) for s in map(lambda x: "%.3f"%x, errors[i]) ]) +\
                   str(modes[i])+"\n"
         fff.write( row_txt )
     fff.close()

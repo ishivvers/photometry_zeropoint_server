@@ -166,7 +166,6 @@ def web_plots_SDSS( size=1800., coords=COORDS ):
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
         plt.savefig(imdir+"sdss_errs_hist_%c.png" %(band), transparent=True)
-        plt.clf()
         
         plt.figure(i+5)
         plt.xlabel('Model X^2, {}-band (mag)'.format(band))
@@ -174,7 +173,7 @@ def web_plots_SDSS( size=1800., coords=COORDS ):
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
         plt.savefig(imdir+"sdss_errs_scatp_%c.png" %(band), transparent=True)
-        plt.clf()
+        
     return medians, mads, onesig_errs
 
     
@@ -420,7 +419,6 @@ def web_plots_UKIDSS( size=1800., ignore_sdss=True, coords=COORDS ):
     leg = plt.legend(loc='best', fancybox=True)
     leg.get_frame().set_alpha(0.0)
     plt.savefig(imdir+"ukidss_errs_hist_y.png", transparent=True)
-    plt.clf()
     
     plt.figure(2)
     plt.xlabel('Model Chi^2 (y-band)')
@@ -428,7 +426,6 @@ def web_plots_UKIDSS( size=1800., ignore_sdss=True, coords=COORDS ):
     leg = plt.legend(loc='best', fancybox=True)
     leg.get_frame().set_alpha(0.0)
     plt.savefig(imdir+"ukidss_errs_scatp_y.png", transparent=True)
-    plt.clf()
     
     return medians, mads, onesig_errs
 
@@ -616,7 +613,6 @@ def web_plots_APASS( size=1800, ignore_sdss=True, coords=COORDS ):
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
         plt.savefig(imdir+"apass_errs_hist_%c.png" %(filt), transparent=True)
-        plt.clf()
         
         plt.figure(i+5)
         plt.xlabel('Model X^2, {}-band (mag)'.format(filt))
@@ -624,7 +620,7 @@ def web_plots_APASS( size=1800, ignore_sdss=True, coords=COORDS ):
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
         plt.savefig(imdir+"apass_errs_scatp_%c.png" %(filt), transparent=True)
-        plt.clf()
+        
     return medians, mads, onesig_errs
 
     
@@ -881,7 +877,6 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
         plt.savefig(imdir+"stetson_errs_hist_%c.png" %(band), transparent=True)
-        plt.clf()
         
         plt.figure(i+4)
         plt.xlabel('Model X^2, {}-band (mag)'.format(band))
@@ -889,7 +884,7 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
         plt.savefig(imdir+"stetson_errs_scatp_%c.png" %(band), transparent=True)
-        plt.clf()
+        
     return medians, mads, onesig_errs
 
 
@@ -904,6 +899,14 @@ if __name__ == '__main__':
     #  then err = f(chi^2) = interp1d(x_array, y_array)
     
     import pickle
+    
+    def clear_all_figs(max=100):
+        for i in range(max):
+            if plt.fignum_exists(i):
+                plt.figure(i)
+                plt.clf()
+        return
+    
     err_dict = {}
     
     # first, mode 1 (USNOB)
@@ -915,15 +918,18 @@ if __name__ == '__main__':
     err_dict[1]['x'] = x
     
     med,mad,onesig = web_plots_SDSS(size=3600.)
+    clear_all_figs()
     for band in onesig.keys():
         errs = np.mean( np.array(onesig[band]), axis=0 )
         err_dict[1][band] = errs
         
     med,mad,onesig = web_plots_UKIDSS(size=3600.)
+    clear_all_figs()
     errs = np.mean( np.array(onesig), axis=0 )
     err_dict[1]['y'] = errs
     
     med,mad,onesig = web_plots_Stetson()
+    clear_all_figs()
     for band in onesig.keys():
         if band == 'B' or band == 'R': continue
         errs = np.mean( np.array(onesig[band]), axis=0 )
@@ -938,10 +944,12 @@ if __name__ == '__main__':
     err_dict[0]['x'] = x
     
     med,mad,onesig = web_plots_UKIDSS(size=3600., ignore_sdss=False)
+    clear_all_figs()
     errs = np.mean( np.array(onesig), axis=0 )
     err_dict[0]['y'] = errs
     
     med,mad,onesig = web_plots_Stetson(ignore_sdss=True)
+    clear_all_figs()
     for band in onesig.keys():
         errs = np.mean( np.array(onesig[band]), axis=0 )
         err_dict[0][band] = errs

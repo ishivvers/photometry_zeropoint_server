@@ -166,6 +166,7 @@ def web_plots_SDSS( size=1800., coords=COORDS ):
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
         plt.savefig(imdir+"sdss_errs_hist_%c.png" %(band), transparent=True)
+        plt.clf()
         
         plt.figure(i+5)
         plt.xlabel('Model X^2, {}-band (mag)'.format(band))
@@ -173,6 +174,7 @@ def web_plots_SDSS( size=1800., coords=COORDS ):
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
         plt.savefig(imdir+"sdss_errs_scatp_%c.png" %(band), transparent=True)
+        plt.clf()
     return medians, mads, onesig_errs
 
     
@@ -418,6 +420,7 @@ def web_plots_UKIDSS( size=1800., ignore_sdss=True, coords=COORDS ):
     leg = plt.legend(loc='best', fancybox=True)
     leg.get_frame().set_alpha(0.0)
     plt.savefig(imdir+"ukidss_errs_hist_y.png", transparent=True)
+    plt.clf()
     
     plt.figure(2)
     plt.xlabel('Model Chi^2 (y-band)')
@@ -425,6 +428,7 @@ def web_plots_UKIDSS( size=1800., ignore_sdss=True, coords=COORDS ):
     leg = plt.legend(loc='best', fancybox=True)
     leg.get_frame().set_alpha(0.0)
     plt.savefig(imdir+"ukidss_errs_scatp_y.png", transparent=True)
+    plt.clf()
     
     return medians, mads, onesig_errs
 
@@ -612,6 +616,7 @@ def web_plots_APASS( size=1800, ignore_sdss=True, coords=COORDS ):
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
         plt.savefig(imdir+"apass_errs_hist_%c.png" %(filt), transparent=True)
+        plt.clf()
         
         plt.figure(i+5)
         plt.xlabel('Model X^2, {}-band (mag)'.format(filt))
@@ -619,6 +624,7 @@ def web_plots_APASS( size=1800, ignore_sdss=True, coords=COORDS ):
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
         plt.savefig(imdir+"apass_errs_scatp_%c.png" %(filt), transparent=True)
+        plt.clf()
     return medians, mads, onesig_errs
 
     
@@ -875,6 +881,7 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
         plt.savefig(imdir+"stetson_errs_hist_%c.png" %(band), transparent=True)
+        plt.clf()
         
         plt.figure(i+4)
         plt.xlabel('Model X^2, {}-band (mag)'.format(band))
@@ -882,6 +889,7 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
         plt.savefig(imdir+"stetson_errs_scatp_%c.png" %(band), transparent=True)
+        plt.clf()
     return medians, mads, onesig_errs
 
 

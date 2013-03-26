@@ -515,7 +515,7 @@ def choose_model( obs, mask, models=MODELS, allow_cut=False ):
                 
             i_best = np.argmin(sum_sqrs)
             best_model = models[1:][ i_best ]
-        
+    
     # now add back in the Jmag value to get a model for the non-zeroed observations
     C = Cs[i_best] + Jmag
     
@@ -529,10 +529,14 @@ def choose_model( obs, mask, models=MODELS, allow_cut=False ):
     return (best_model[1:] + C, C, best_model[0], metric, i_cut )
 
 
-def fit_sources( inn, f_err=ERR_FUNCTIONS ):
+def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
     '''
     Wrapper function for choose_model to facilitate multiprocessor
      use ( in catalog.produce_catalog() )
+    
+    If return_cut == True, any observations that are ignored in the fitting
+     procedure are replaced by the modeled result.  Otherwise, observed
+     photometry is always returned, whether used in model fit or not.
     '''
     # the masks show, in order, which bands are included
     #  order: u,g,r,i,z, y, B,V,R,I, J,H,K
@@ -543,6 +547,7 @@ def fit_sources( inn, f_err=ERR_FUNCTIONS ):
     elif mode == 1: # usnob+2mass
         mask = [0,0,0,0,0, 0, 1,0,1,0, 1,1,1]
         allow_cut = True
+        
     mask = np.array(mask).astype(bool)
     model, C, index, err, i_cut = choose_model( obs, mask, allow_cut=allow_cut )
     
@@ -559,15 +564,16 @@ def fit_sources( inn, f_err=ERR_FUNCTIONS ):
         full_errs[i_band] = f_err[mode][band]( min(err, f_err[mode]['range'][1]) )
     
     # if a value was cut while fitting, return the modeled magnitude instead of the observed
-    if i_cut != None:
+    if return_cut and i_cut != None:
         # do some gymnastics to get the cut passband since it's behind a mask
         cut_band = npALL_FILTERS[mask][i_cut]
         i_cut_band = FILTER_PARAMS[cut_band][-1]
         sed[i_cut_band] = model[mask][i_cut]
-        # For now simply report the original error on the observation, though this is wrong.
+        # For now simply report a (conservative) error of 0.5, though this is wrong.
         # Should run a series of tests seeing how good each observed band (in each mode)
         #  is predicted by the rest of the observed bands, and put those results into f_err as below
         #full_errs[i_cut_band] = f_err[mode][cut_band]( min(err, f_err[mode]['range'][1]) )
+        full_errs[i_cut_band] = 0.5
         
     return ( sed, full_errs, err, index )
 
@@ -665,8 +671,8 @@ class catalog():
                 object_mags.append( obs )
                 modes.append( mode )
                 object_coords.append( obj[:2] )
-        else:
-            raise ValueError( "No 2-MASS sources in this field!" )
+        if len(object_coords) < 1:
+            raise ValueError( "No good sources in this field!" )
         
         # send all of these matches to the CPU pool to get modeled
         objects = zip( modes, object_mags )
@@ -709,7 +715,8 @@ def save_catalog( coordinates, seds, errors, modes, file_name ):
     fff = open(file_name,'w')
     fff.write('# Observed/modeled SEDs produced by get_SEDs.py \n' +
               '# Generated: {}\n'.format(strftime("%H:%M %B %d, %Y")) +
-              '# modes: 0 -> SDSS+2MASS; 1 -> USNOB1+2MASS\n' +
+              '#  Mode = 0: -> B,V,R,I,y modeled from SDSS and 2-MASS\n' +
+              '#  Mode = 1: -> u,g,r,i,z,y,V,I modeled from USNOB-1 and 2-MASS\n' +
               "# " + "RA".ljust(8) + "DEC".ljust(10) + "".join([f.ljust(8) for f in ALL_FILTERS]) + \
               "".join([(f+"_err").ljust(8) for f in ALL_FILTERS]) + "Mode\n")
     for i,row in enumerate(seds):

@@ -50,14 +50,15 @@ except:
 
 ALL_FILTERS = ['u','g','r','i','z','y','B','V','R','I','J','H','K']
 npALL_FILTERS = np.array(ALL_FILTERS) # it's helpful to have a version that works with numpy masks
-# band: (central wavelength (AA), zeropoint (erg/s/cm^2/AA), catalog index)
-FILTER_PARAMS =  {'u': (3551., 8.6387e-9, 0), 'g': (4686., 4.9607e-9, 1),
-                  'r': (6165., 2.8660e-9, 2), 'i': (7481., 1.9464e-9, 3),
-                  'z': (8931., 1.3657e-9, 4), 'y': (10091., 1.0696e-9, 5),
-                  'B': (4400., 6.6000e-9, 6), 'V': (5490., 3.6100e-9, 7),
-                  'R':(6500., 2.1900e-9, 8),  'I': (7885., 1.1900e-9, 9),
-                  'J':(12350., 3.1353e-10, 10), 'H':(16620., 1.1121e-10, 11),
-                  'K':(21590., 4.2909e-11, 12)}
+# band: (central wavelength (AA), zeropoint (erg/s/cm^2/AA), effective width (AA), catalog index)
+FILTER_PARAMS =  {'u': (3551., 8.6387e-9, 558.4, 0), 'g': (4686., 4.9607e-9, 1158.4, 1),
+                  'r': (6165., 2.8660e-9, 1111.2, 2), 'i': (7481., 1.9464e-9, 1044.5, 3),
+                  'z': (8931., 1.3657e-9, 1124.6, 4), 'y': (10091., 1.0696e-9,  1114.8, 5),
+                  'B': (4400., 6.6000e-9, 912.8, 6), 'V': (5490., 3.6100e-9, 857.3, 7),
+                  'R':(6500., 2.1900e-9, 1320.2, 8),  'I': (7885., 1.1900e-9, 1220.1, 9),
+                  'J':(12350., 3.1353e-10, 1624.3, 10), 'H':(16620., 1.1121e-10, 2509.4, 11),
+                  'K':(21590., 4.2909e-11, 2618.9, 12)}
+
 
 ############################################
 # ONLINE CATALOG STUFF
@@ -803,7 +804,7 @@ def zeropoint( input_file, band, output_file=None ):
     c = catalog( field_center, max(field_width), input_coords=input_coords )
     
     # identify which band this is for and calculate the zeropoint
-    cat_index = FILTER_PARAMS[band][2]
+    cat_index = FILTER_PARAMS[band][-1]
     cat_mags = c.SEDs[:, cat_index]
     zp, mad, matches = calc_zeropoint( input_coords, c.coords, input_mags, cat_mags )
     

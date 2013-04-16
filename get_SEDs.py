@@ -375,6 +375,12 @@ def find_field( coords, extend=3. ):
     '''
     coords = np.array(coords) #make sure the input coords are an array
     
+    # handle RA rollovers
+    if any( coords[:,0] > 359. ) and any( coords[:,0] < 1. ):
+        # put all coordinates on the high side
+        mask = coords[:,0]<1.
+        coords[:,0][ mask ] = coords[:,0][ mask ] + 360.
+    
     # the field center
     r_c = np.deg2rad(min(coords[:,0]) + ( max(coords[:,0]) - min(coords[:,0]) )/2.)
     d_c = np.deg2rad(min(coords[:,1]) + ( max(coords[:,1]) - min(coords[:,1]) )/2.)
@@ -395,8 +401,12 @@ def find_field( coords, extend=3. ):
     X_width = np.abs(X_ra(r_max, d_c) - X_ra(r_min, d_c))
     Y_width = np.abs(Y_dec(r_c, d_max) - Y_dec(r_c, d_min))
     
-    # convert center to decimal degrees and widths to arcseconds
-    return np.rad2deg([r_c, d_c]).tolist(), (np.rad2deg([X_width, Y_width])*3600 + 2*extend).tolist()
+    # convert center to decimal degrees and make sure to rollback any RA rollovers, if they happened
+    out_c = np.rad2deg( [r_c, d_c] ).tolist()
+    out_c[0] = out_c[0]%360.
+    # convert widths to arcseconds and extend them
+    widths = (np.rad2deg([X_width, Y_width])*3600 + 2*extend).tolist()
+    return out_c, widths
 
 
 def split_field( field_center, field_width, max_size, object_coords=None ):

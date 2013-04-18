@@ -7,7 +7,8 @@ Requires:
 - all_models_P.npy, a file produced by assemble_models.py
 
 To Do:
-- verify spherical trig for find_field (projected RA,Dec, or true angles?)
+- add proper distutils setup
+- convert all absolute paths to os.path.join kind of things
 '''
 
 
@@ -79,7 +80,19 @@ class online_catalog_query():
     def __init__(self, ra, dec, boxsize=10. ):
         self.coords = (ra, dec)
         self.boxsize = boxsize
+        self.MASS, self.SDSS, self.USNOB = self._query_all()
     
+    def query_sdss( self ):
+        return self.SDSS
+    
+    def query_2mass( self ):
+        return self.MASS
+    
+    def query_usnob1( self ):
+        return self.USNOB
+    
+    def query_all( self ):
+        return self.MASS, self.SDSS, self.USNOB
     
     def _parse_sdss( self, s ):
         '''
@@ -114,7 +127,7 @@ class online_catalog_query():
         return np.array(out)
     
     
-    def query_sdss( self, container=None, cont_index=1, trim_mag=21. ):
+    def _query_sdss( self, container=None, cont_index=1, trim_mag=21. ):
         '''
         Query sdss8 server for sources found in a box of width boxsize (arcsecs)
         around ra,dec.
@@ -183,7 +196,7 @@ class online_catalog_query():
         return np.array(out)
     
     
-    def query_2mass( self, container=None, cont_index=0 ):
+    def _query_2mass( self, container=None, cont_index=0 ):
         '''
         Query 2mass server for sources found in a box of width boxsize (arcsecs)
         around ra,dec.
@@ -197,7 +210,7 @@ class online_catalog_query():
         # search for 2Mass point sources around coordinates with
         #  defined box size, return only basic parameters, and 
         #  sort by distance from coordinates, and return a 
-        #  maximum of 10000 sources (i.e. return everything)
+        #  maximum of 1000000 sources (i.e. return everything)
         request = 'find2mass -c {} {} -bs {} -eb -sr -m 1000000'.format( ra, dec, boxsize )
         out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
         o,e = out.communicate()
@@ -272,7 +285,7 @@ class online_catalog_query():
         return np.array(out)
     
     
-    def query_usnob1( self, container=None, cont_index=2 ):
+    def _query_usnob1( self, container=None, cont_index=2 ):
         '''
         Query usnob1 server for sources found in a box of width boxsize (arcsecs)
         around ra,dec.
@@ -302,7 +315,7 @@ class online_catalog_query():
             container[ cont_index ] = output
     
     
-    def query_all( self ):
+    def _query_all( self ):
         '''
         Query all sources, with an independent thread for each
          so that the communications happen concurrently, to save
@@ -314,9 +327,9 @@ class online_catalog_query():
         boxsize = self.boxsize
         # results is a container into which the threads will put their responses
         results = [None]*3
-        t0 = Thread(target=self.query_2mass, args=(results,))
-        t1 = Thread(target=self.query_sdss, args=(results,))
-        t2 = Thread(target=self.query_usnob1, args=(results,))    
+        t0 = Thread(target=self._query_2mass, args=(results,))
+        t1 = Thread(target=self._query_sdss, args=(results,))
+        t2 = Thread(target=self._query_usnob1, args=(results,))    
         threads = [t0, t1, t2]
         for t in threads:
             t.start()
@@ -367,7 +380,7 @@ def find_field( coords, extend=3. ):
     Determine the best field for a list of star coordinates,
     so we can perform only a single query.
     
-    star_coords: a list of star coordinates, in decimal degrees
+    star_coords: a list/array of star coordinates, (decimal degrees)
     extend: the buffer beyond the requested coordinates to add to the field in both directions
       (in arcseconds)
     
@@ -377,19 +390,19 @@ def find_field( coords, extend=3. ):
     
     # handle RA rollovers
     if any( coords[:,0] > 359. ) and any( coords[:,0] < 1. ):
-        # put all coordinates on the high side
+        # put all coordinates on the high side, will be rolled back at end
         mask = coords[:,0]<1.
         coords[:,0][ mask ] = coords[:,0][ mask ] + 360.
-    
-    # the field center
-    r_c = np.deg2rad(min(coords[:,0]) + ( max(coords[:,0]) - min(coords[:,0]) )/2.)
-    d_c = np.deg2rad(min(coords[:,1]) + ( max(coords[:,1]) - min(coords[:,1]) )/2.)
     
     # the field widths in each direction
     r_max = np.deg2rad( np.max(coords[:,0]) )
     r_min = np.deg2rad( np.min(coords[:,0]) )
     d_max = np.deg2rad( np.max(coords[:,1]) )
     d_min = np.deg2rad( np.min(coords[:,1]) )
+    
+    # the field center
+    r_c = r_min + (r_max-r_min)/2.
+    d_c = d_min + (d_max-d_min)/2.
     
     # the conversions between angles in RA,Dec and actual angles
     X_ra = lambda r,d: (np.cos(d)*np.sin(r-r_c))/(np.cos(d_c)*np.cos(d)*np.cos(r-r_c) +\
@@ -401,7 +414,7 @@ def find_field( coords, extend=3. ):
     X_width = np.abs(X_ra(r_max, d_c) - X_ra(r_min, d_c))
     Y_width = np.abs(Y_dec(r_c, d_max) - Y_dec(r_c, d_min))
     
-    # convert center to decimal degrees and make sure to rollback any RA rollovers, if they happened
+    # convert center to decimal degrees and make sure to rollback any RA rollovers (if they happened)
     out_c = np.rad2deg( [r_c, d_c] ).tolist()
     out_c[0] = out_c[0]%360.
     # convert widths to arcseconds and extend them
@@ -628,6 +641,7 @@ class catalog():
         self.models = []
         self.modes = []
         self.numcut = 0
+        self.bands = ALL_FILTERS
         
         if field_width > self.MAX_SIZE:
             # simply don't allow queries that are too large
@@ -714,6 +728,23 @@ class catalog():
     def save_catalog( self, file_name ):
         save_catalog( self.coords, self.SEDs, self.full_errors, self.modes, file_name )
     
+    def get_source( self, ra, dec ):
+        '''
+        Return a dictionary with the coordinates and photometry for the object
+         at ra, dec (if that object is matched in the catalog).  Returns None
+         if no match found.
+        output = { 'coords':[ra, dec], 'y':[y_mag, y_err], 'z':[z_mag, z_err], ... }
+        '''
+        index, dist = identify_matches( [[ra,dec]], self.coords )
+        index = index[0] #take the best match
+        if index < 0:
+            # no match found
+            return None
+        else:
+            out_dict = { 'coords':self.coords[index] }
+            for i,band in enumerate(self.bands):
+                out_dict[band] = [ self.SEDs[index][i], self.full_errors[index][i] ]
+            return out_dict
     
 
 

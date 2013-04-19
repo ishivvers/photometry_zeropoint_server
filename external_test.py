@@ -889,6 +889,202 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
 
 
 
+##########################################
+# comparing to empirical power laws
+##########################################
+
+def PL_sdss2stet( fields=FIELDS, colors=['b','g','r','orange','grey','yellow'] ):
+    '''
+    Produce error diagrams akin to those above, but by running power law relations,
+     not modeling the sources.
+    Attempt to predict BVRI from SDSS ugriz.
+    '''
+    medians = { 'B':[], 'V':[], 'R':[], 'I':[] }
+    mads = { 'B':[], 'V':[], 'R':[], 'I':[] }
+    
+    for ifield,field in enumerate(fields):
+        ccc = colors[ifield]
+        
+        input_coords = np.loadtxt('data/'+field+'.pos.clean', skiprows=1)
+        data = np.loadtxt('data/'+field+'.pho.clean', skiprows=1)
+        obs = data[:,1:] #B,V,R,I
+        
+        field_center,field_size = gs.find_field( input_coords )
+        q = gs.online_catalog_query( field_center[0], field_center[1], max(field_size) )
+        matches,tmp = gs.identify_matches( input_coords, q.SDSS[:,:2] )
+        
+        matched_coords = []
+        matched_sdss = []
+        matched_stet = []
+        for i,match in enumerate(matches):
+            if match >= 0:
+                matched_coords.append( input_coords[i] )
+                matched_sdss.append( q.SDSS[match,2::2] ) #throw away sigmas
+                matched_stet.append( obs[i] )
+        matched_coords = np.array(matched_coords)
+        matched_sdss = np.array(matched_sdss)
+        matched_stet = np.array(matched_stet)
+        
+        # compare all predictions
+        Bpred1 = matched_sdss[:,0] - 0.8116*(matched_sdss[:,0] - matched_sdss[:,1]) + 0.1313
+        Bpred2 = matched_sdss[:,1] + 0.3130*(matched_sdss[:,1] - matched_sdss[:,2]) + 0.2271
+        
+        Vpred1 = matched_sdss[:,1] - 0.2906*(matched_sdss[:,0] - matched_sdss[:,1]) + 0.0885
+        Vpred2 = matched_sdss[:,1] - 0.5784*(matched_sdss[:,1] - matched_sdss[:,2]) - 0.0038
+        
+        Rpred1 = matched_sdss[:,2] - 0.1837*(matched_sdss[:,1] - matched_sdss[:,2]) - 0.0971
+        Rpred2 = matched_sdss[:,2] - 0.2936*(matched_sdss[:,2] - matched_sdss[:,3]) - 0.1439
+        
+        Ipred1 = matched_sdss[:,2] - 1.2444*(matched_sdss[:,2] - matched_sdss[:,3]) - 0.3820
+        Ipred2 = matched_sdss[:,3] - 0.3780*(matched_sdss[:,3] - matched_sdss[:,4]) - 0.3974
+        
+        preds = [ [Bpred1, Bpred2], [Vpred1,Vpred2], [Rpred1,Rpred2], [Ipred1,Ipred2] ]
+        '''
+        Lupton equations from here:
+        http://www.sdss.org/dr5/algorithms/sdssUBVRITransform.html
+        
+        B = u - 0.8116*(u - g) + 0.1313;  sigma = 0.0095
+        B = g + 0.3130*(g - r) + 0.2271;  sigma = 0.0107
+        
+        V = g - 0.2906*(u - g) + 0.0885;  sigma = 0.0129
+        V = g - 0.5784*(g - r) - 0.0038;  sigma = 0.0054
+        
+        R = r - 0.1837*(g - r) - 0.0971;  sigma = 0.0106
+        R = r - 0.2936*(r - i) - 0.1439;  sigma = 0.0072
+        
+        I = r - 1.2444*(r - i) - 0.3820;  sigma = 0.0078
+        I = i - 0.3780*(i - z)  -0.3974;  sigma = 0.0063
+        ''' 
+            
+        bins = np.linspace(-1, 1, 20)
+        for i,band in enumerate(['B','V','R','I']):
+            # handle cases with a single bad band (value = -99.)
+            mask = matched_stet[:,i] != 99.999
+            err1 = gs.clip_me( matched_stet[:,i][mask] - preds[i][0][mask] )
+            err2 = gs.clip_me( matched_stet[:,i][mask] - preds[i][1][mask] )
+            
+            medians[band].append( [np.median(err1), np.median(err2)] )
+            mads[band].append( [np.median( np.abs( err1-np.median(err1) ) ), np.median( np.abs( err2-np.median(err2) ) )] )
+                        
+            plt.figure(i)
+            plt.hist( err1, label="{} - 1".format(field),\
+                      color=ccc, bins=bins, linewidth=3, histtype='step', normed=True)
+            plt.hist( err2, label="{} - 2".format(field),\
+                      color=ccc, bins=bins, ls='dashed', linewidth=3, histtype='step', normed=True)
+                      
+    for i,band in enumerate(['B','V','R','I']):
+        plt.figure(i)
+        plt.title( band )
+        plt.xlabel( 'Stetson - Power Law' )
+        plt.ylabel( 'Normalized Count' )
+        plt.legend()
+    plt.show()
+    return medians, mads
+
+
+
+def PL_mass2izy( size=3600., coords=COORDS ):
+    '''
+    Produce error diagrams akin to those above, but by running power law relations,
+     not modeling the sources.
+    Attempt to predict zy from 2mass.
+    '''
+    medians = { 'i':[], 'z':[], 'y':[] }
+    mads = { 'i':[], 'z':[], 'y':[] }
+    
+    data = np.loadtxt( 'data/ukidss_all.csv', delimiter=',')
+    # get rid of any that don't have a yband
+    dat = data[ data[:,2]>0 ]
+    input_coords = dat[:,:2] # ra,dec
+    y = dat[:,2] #+ 0.58693544 #+ 0.634   # correction to ABmag from hewett 2006
+    
+    bins = np.linspace(-1, 1, 20)
+    for i_field,field_center in enumerate(coords):
+        print 'Starting field %.2f, %.2f\n\n' %(field_center[0], field_center[1])
+        ccc = COLORS[i_field]
+    
+        q = gs.online_catalog_query( field_center[0], field_center[1], size )
+        matches_mass,tmp = gs.identify_matches( input_coords, q.MASS[:,:2] )
+        matches_sdss,tmp = gs.identify_matches( input_coords, q.SDSS[:,:2] )
+        
+        y_match = []
+        z_match = []
+        i_match = []
+        mass_match = []
+        for i,match in enumerate(matches_mass):
+            if match >= 0 and matches_sdss[i] >= 0:
+                y_match.append( y[i] )
+                z_match.append( q.SDSS[ matches_sdss[i] ][-2] )
+                i_match.append( q.SDSS[ matches_sdss[i] ][-4] )
+                mass_match.append( q.MASS[match][2::2] )
+        y_match = np.array(y_match)
+        z_match = np.array(z_match)
+        i_match = np.array(i_match)
+        mass_match = np.array(mass_match)
+        
+        """
+        Equations from WFCam team:
+        http://apm49.ast.cam.ac.uk/surveys-projects/wfcam/technical/photometry
+        Z_wfcam  =  J +  0.95*(J - H)
+        Y_wfcam  =  J +  0.50*(J - H)  + 0.08
+        zAB = Z_wfcam + 0.533
+        yAB = Y_wfcam + 0.634 # not necessary, since I'm using y_wfcam above (from UKIDSS)
+        
+        Equations from Vista Cam team:
+        http://apm49.ast.cam.ac.uk/surveys-projects/vista/technical/the-vista-guide-camera-predicting-magnitudes-from-2mass-photometry
+        i = J + (J-K)*1.175 + 0.459 (for H-K <= 0.15)
+        i = J + (J-K)*1.175 + 0.459 + (H-K-0.15)*3.529   (for H-K >  0.15)
+        """
+        
+        z_pred = mass_match[:,0] + .95*(mass_match[:,0] - mass_match[:,1]) + 0.533
+        y_pred = mass_match[:,0] + .50*(mass_match[:,0] - mass_match[:,1]) + 0.08
+        # apply two rules for i translation:
+        HKup = mass_match[:,1] - mass_match[:,2] > .15
+        i_pred = np.zeros_like( y_pred )
+        for i,up in enumerate(HKup):
+            J,H,K = mass_match[i]
+            if up:
+                i_pred[i] = J + (J-K)*1.175 + 0.459 + (H-K-0.15)*3.529
+            else:
+                i_pred[i] = J + (J-K)*1.175 + 0.459
+        erry = gs.clip_me( y_match - y_pred )
+        errz = gs.clip_me( z_match - z_pred )
+        erri = gs.clip_me( i_match - i_pred )
+        
+        medians['i'].append( np.median(erri) )
+        medians['z'].append( np.median(errz) )
+        medians['y'].append( np.median(erry) )
+        mads['i'].append( np.median( np.abs( erri-np.median(erri) ) ) )
+        mads['z'].append( np.median( np.abs( errz-np.median(errz) ) ) )
+        mads['y'].append( np.median( np.abs( erry-np.median(erry) ) ) )
+        
+        
+        plt.figure(1)
+        plt.hist( errz, label="{} - {}".format(field_center[0], field_center[1]),\
+                  color=ccc, bins=bins, linewidth=3, histtype='step', normed=True)
+        plt.figure(2)
+        plt.hist( erry, label="{} - {}".format(field_center[0], field_center[1]),\
+                  color=ccc, bins=bins, linewidth=3, histtype='step', normed=True)
+        plt.figure(3)
+        plt.hist( erri, label="{} - {}".format(field_center[0], field_center[1]),\
+                color=ccc, bins=bins, linewidth=3, histtype='step', normed=True)
+    plt.figure(1)
+    plt.xlabel( 'sdss z - predicted z')
+    plt.ylabel( 'normalized count' )
+    plt.legend( loc='best' )
+    plt.figure(2)
+    plt.xlabel( 'ukidss y - predicted y')
+    plt.ylabel( 'normalized count' )
+    plt.legend( loc='best' )
+    plt.figure(3)
+    plt.xlabel( 'sdss i - predicted i')
+    plt.ylabel( 'normalized count' )
+    plt.legend( loc='best' )
+    plt.show()
+    return medians, mads
+        
+    
+
 
 if __name__ == '__main__':
     # construct a dictionary of the mean errors,

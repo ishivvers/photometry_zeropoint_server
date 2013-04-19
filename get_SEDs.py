@@ -9,6 +9,11 @@ Requires:
 To Do:
 - add proper distutils setup
 - convert all absolute paths to os.path.join kind of things
+- fold in usnob I !!!
+ - try requiring 2 or 3 obs, see which is better
+ - build proper error dictionary entries for when 
+   any single USNOB band is left out, but we still
+   want to predict that band.
 '''
 
 
@@ -268,15 +273,27 @@ class online_catalog_query():
                     tmp = line[2 + 2*i]
                     if '-' not in tmp:
                         Rs.append( float(tmp) )
-                # ignore sources that don't include at least one B and one R observation
-                if not Bs or not Rs: continue
-                B = np.mean(Bs)
-                R = np.mean(Rs)
+                tmp = line[1 + 2*obs_count]
+                if '-' not in tmp:
+                    I = float(tmp)
+                    I_err = 0.3
+                else:
+                    I = I_err = 0
+                        
+                # ignore sources that don't have at least two observations
                 # each measure has an error of about .3 mag
-                B_err = 0.3/np.sqrt(len(Bs))
-                R_err = 0.3/np.sqrt(len(Rs))
-            
-                out.append( [ra, dec, B, B_err, R, R_err] )
+                if sum( [not Bs, not Rs, not I] ) > 1: continue
+                if Bs:
+                    B = np.mean(Bs)
+                    B_err = 0.3/np.sqrt(len(Bs))
+                else:
+                    B = B_err = 0
+                if Rs:
+                    R = np.mean(Rs)
+                    R_err = 0.3/np.sqrt(len(Rs))
+                else:
+                    R = R_err = 0
+                out.append( [ra, dec, B, B_err, R, R_err, I, I_err] )
             except:
                 # silently fail on sources that are not formatted properly,
                 #  they are probably anomalous anyways.
@@ -495,7 +512,7 @@ def choose_model( obs, mask, models=MODELS, allow_cut=False ):
     obs: an array of the observed magnitudes and errors, in
            order as defined by the mode key (see below)
     mask: defines what colors to use in the fit, i.e. what observations exist
-           in order: [u,g,r,i,z,y,B,R,J,H,K]
+           in order: [u,g,r,i,z,y,B,V,R,I,J,H,K]
     models: an array of modeled SEDs, where 0th entry is temperature
              of the model, and the rest are magnitudes
     allow_cut: if true, allows one datapoint to be cut from fit
@@ -569,7 +586,15 @@ def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
         mask = [1,1,1,1,1, 0, 0,0,0,0, 1,1,1]
         allow_cut = True
     elif mode == 1: # usnob+2mass
-        mask = [0,0,0,0,0, 0, 1,0,1,0, 1,1,1]
+        mask = [0,0,0,0,0, 0, 0,0,0,0, 1,1,1]
+        # the code allows for 2 or 3 usnob obs, so make sure we handle that correctly
+        if obs[0] > 0:
+            mask[6] = 1
+        if obs[2] > 0:
+            mask[8] = 1
+        if obs[4] > 0:
+            mask[9] = 1
+        obs = obs[ obs>0 ]
         allow_cut = True
         
     mask = np.array(mask).astype(bool)
@@ -585,7 +610,11 @@ def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
     # and return errors as estimated by model Chi^2
     for band in npALL_FILTERS[~mask]:
         i_band = FILTER_PARAMS[band][-1]
-        full_errs[i_band] = f_err[mode][band]( min(err, f_err[mode]['range'][1]) )
+        # temporary fill-in for when USNOB bands get cut
+        if (mode == 1) and (band in ['B','R','I']):
+            full_errs[i_band] = 0.5
+        else:
+            full_errs[i_band] = f_err[mode][band]( min(err, f_err[mode]['range'][1]) )
     
     # if a value was cut while fitting, return the modeled magnitude instead of the observed
     if return_cut and i_cut != None:
@@ -702,7 +731,8 @@ class catalog():
         # send all of these matches to the CPU pool to get modeled
         objects = zip( modes, object_mags )
         pool = mp.Pool( processes=N_CORES )
-        results = pool.map( fit_sources, objects )
+        #results = pool.map( fit_sources, objects )
+        results = [fit_sources(obj) for obj in objects]
         pool.close()
         
         # now go through results and construct the final values

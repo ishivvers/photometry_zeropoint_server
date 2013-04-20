@@ -111,11 +111,13 @@ def web_plots_SDSS( size=1800., coords=COORDS ):
         model_matches = []
         obs_matches = []
         model_err = []
+        models = []
         for i,match in enumerate(matches):
           if match >= 0:
               model_matches.append( c.SEDs[match] )
               obs_matches.append( sdss[i,2:][::2] )
               model_err.append( c.model_errors[match] )
+              models.append( c.models[match] )
         model_matches = np.array(model_matches)
         obs_matches = np.array(obs_matches)
         
@@ -157,6 +159,10 @@ def web_plots_SDSS( size=1800., coords=COORDS ):
             plt.plot( x2, f_med(x2), '--', alpha=.9, c=ccc)
             
             onesig_errs[band].append(onesigs)
+            
+            # a histogram of errors per model
+            plt.figure(12)
+            plt.scatter( models, err, alpha=.25, marker='.', c=ccc )
     
     
     for i,band in enumerate(['u','g','r','i','z']):
@@ -174,6 +180,11 @@ def web_plots_SDSS( size=1800., coords=COORDS ):
         leg.get_frame().set_alpha(0.0)
         plt.savefig(imdir+"sdss_errs_scatp_%c.png" %(band), transparent=True)
         
+    plt.figure(12)
+    plt.xlabel( 'model #' )
+    plt.ylabel( 'error' )
+    plt.title( 'errors per stellar type (SDSS)' )
+    
     return medians, mads, onesig_errs
 
     
@@ -365,11 +376,13 @@ def web_plots_UKIDSS( size=1800., ignore_sdss=True, coords=COORDS ):
         model_matches = []
         obs_matches = []
         model_err = []
+        models = []
         for i,match in enumerate(matches):
             if match >= 0:
                 model_matches.append( c.SEDs[match,i_y] )
                 obs_matches.append( Y[i][0] )
                 model_err.append( c.model_errors[match] )
+                models.append( c.models[match] )
         model_matches = np.array(model_matches)
         obs_matches = np.array(obs_matches)
         
@@ -413,6 +426,10 @@ def web_plots_UKIDSS( size=1800., ignore_sdss=True, coords=COORDS ):
         
         onesig_errs.append(onesigs)
         
+        # error per model
+        plt.figure(14)
+        plt.scatter( models, err, alpha=.25, marker='.', c=ccc )
+        
     plt.figure(1)
     plt.xlabel('Error in y-band (mag)')
     plt.ylabel('Normalized Count')
@@ -426,6 +443,11 @@ def web_plots_UKIDSS( size=1800., ignore_sdss=True, coords=COORDS ):
     leg = plt.legend(loc='best', fancybox=True)
     leg.get_frame().set_alpha(0.0)
     plt.savefig(imdir+"ukidss_errs_scatp_y.png", transparent=True)
+    
+    plt.figure(14)
+    plt.xlabel( 'model #' )
+    plt.ylabel( 'error' )
+    plt.title( 'errors per stellar type (UKIDSS)' )
     
     return medians, mads, onesig_errs
 
@@ -770,6 +792,7 @@ def compare_to_Stetson( field, ignore_sdss=True, clip=True, colors=['b','g','r',
         f_med = interp1d(x, onesigs)
         x2 = np.linspace(min(x), max(x), 1000)
         plt.plot( x2, f_med(x2), '--', alpha=.9, c=ccc)
+        
     
     plt.figure(1)
     plt.xlabel('Stetson - model')
@@ -812,11 +835,13 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
         model_matches = []
         obs_matches = []
         model_err = []
+        models = []
         for i,match in enumerate(matches):
             if match >= 0:
                 model_matches.append( c.SEDs[match] )
                 obs_matches.append( obs[i] )
                 model_err.append( c.model_errors[match] )
+                models.append( c.models[match] )
         model_matches = np.array(model_matches)
         obs_matches = np.array(obs_matches)
         model_err = np.array(model_err)
@@ -828,6 +853,7 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
             # handle cases with a single bad band (value = -99.)
             obmatch = obs_matches[:,i][ obs_matches[:,i]!=99.999 ]
             momatch = model_matches[:,i_filt][ obs_matches[:,i]!=99.999 ]
+            goodmodels = np.array(models)[obs_matches[:,i]!=99.999]
             
             err = gs.clip_me(obmatch - momatch)
             med = np.median( err )
@@ -870,6 +896,11 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
             
             onesig_errs[filt].append(onesigs)
             
+            # error per model
+            plt.figure(13)
+            plt.scatter( goodmodels, err, alpha=.25, marker='.', c=ccc )
+            
+            
     for i,band in enumerate(['B','V','R','I']):
         plt.figure(i)
         plt.xlabel('Error in {}-band (mag)'.format(band))
@@ -884,7 +915,12 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
         plt.savefig(imdir+"stetson_errs_scatp_%c.png" %(band), transparent=True)
-        
+    
+    plt.figure(13)
+    plt.xlabel( 'model #' )
+    plt.ylabel( 'error' )
+    plt.title( 'errors per stellar type (Stetson)' )
+    
     return medians, mads, onesig_errs
 
 
@@ -980,7 +1016,6 @@ def PL_sdss2stet( fields=FIELDS, colors=['b','g','r','orange','grey','yellow'] )
         plt.legend()
     plt.show()
     return medians, mads
-
 
 
 def PL_mass2izy( size=3600., coords=COORDS ):
@@ -1158,7 +1193,7 @@ if __name__ == '__main__':
 '''
 ERROR ANALYSIS RESULTS
 
-May 22, 2013
+March 22, 2013
 
 
 # One-sigma errors on the median value for a 1-degree field #

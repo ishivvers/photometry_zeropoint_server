@@ -9,11 +9,6 @@ Requires:
 To Do:
 - add proper distutils setup
 - convert all absolute paths to os.path.join kind of things
-- fold in usnob I !!!
- - try requiring 2 or 3 obs, see which is better
- - build proper error dictionary entries for when 
-   any single USNOB band is left out, but we still
-   want to predict that band.
 '''
 
 
@@ -34,8 +29,8 @@ import multiprocessing as mp
 N_CORES = mp.cpu_count()  # use all the cpus you have
 
 try:
-    MODELS = np.load( open('all_models.npy','r') )
-    # rezero so that K=0 for all models (makes fitting faster)
+    MODELS = np.load( open('all_models_trim.npy','r') )
+    # rezero so that K=0 for all models
     for row in MODELS[1:]:
         row[1:] = row[1:] - row[-1]
 except:
@@ -67,7 +62,7 @@ FILTER_PARAMS =  {'u': (3551., 8.6387e-9, 558.4, 0), 'g': (4686., 4.9607e-9, 115
 
 
 ############################################
-# ONLINE CATALOG STUFF
+# ONLINE CATALOG MANAGEMENT
 ############################################
 
 class online_catalog_query():
@@ -241,7 +236,7 @@ class online_catalog_query():
         
         s: a string as returned by usnob1 using the flag "-eb"
         returns: a 2-d array, with each row containing the results for one object:
-          [ra, dec, avg_B, B_sigma, avg_R, R_sigma]
+          [ra, dec, avg_B, B_sigma, avg_R, R_sigma, I, I_sigma]
         '''
         # parse the header to see how many of each magnitude are reported
         header = s.split('\n')[3]
@@ -275,8 +270,10 @@ class online_catalog_query():
                         Rs.append( float(tmp) )
                 tmp = line[1 + 2*obs_count]
                 if '-' not in tmp:
-                    I = float(tmp)
-                    I_err = 0.3
+                    # NOTE: results are consistently better without the I-band photometry
+                    #I = float(tmp)
+                    #I_err = 0.3
+                    I = I_err = 0
                 else:
                     I = I_err = 0
                         
@@ -632,7 +629,7 @@ def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
 
 
 ############################################
-# SYNTHETIC CATALOG STUFF
+# SYNTHETIC CATALOG MANAGEMENT
 ############################################
 
 class catalog():
@@ -801,7 +798,7 @@ def save_catalog( coordinates, seds, errors, modes, file_name ):
 
 
 ############################################
-# ZEROPOINT STUFF
+# ZEROPOINT CALCULATION
 ############################################
 
 def clip_me( inn, sig_clip=3., max_iter=5, convergence=.02 ):

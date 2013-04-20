@@ -84,6 +84,11 @@ all_colors.append(single)
 #  I keep Pickles should make this into spectral type (have types for all models,
 #  but don't have temperatures for all models)
 for fn in spectra:
+    p_index = float(re.findall( '\d+', fn )[0])
+    
+    #impose limits on what models to use
+    if (45 < p_index < 60) or (105 < p_index): continue
+    
     print fn
     spec = ps.FileSpectrum( directory+fn )
     if save_spectra:
@@ -100,7 +105,6 @@ for fn in spectra:
             mag = ob.effstim('abmag')
         single_phot.append( mag )
 
-    p_index = float(re.findall( '\d+', fn )[0])
     # Save the model with the 0th index as index
     single_colors = [p_index] + single_phot
     all_colors.append( single_colors )
@@ -109,5 +113,5 @@ for fn in spectra:
     #single_colors = [p_index]+[ val-single_phot[-1] for val in single_phot ]
     
 
-np.save( open('all_models.npy', 'w'), np.array(all_colors) )
+np.save( open('all_models_trim.npy', 'w'), np.array(all_colors) )
             

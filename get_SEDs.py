@@ -23,6 +23,7 @@ import scipy.spatial.kdtree
 from os.path import isfile
 from threading import Thread
 from time import time, strftime
+from urllib2 import urlopen
 import pickle
 
 import multiprocessing as mp
@@ -78,9 +79,9 @@ class online_catalog_query():
      Mass = q.query_2mass() #same for all catalogs
     '''
     def __init__(self, ra, dec, boxsize=10. ):
-        self.coords = (ra, dec)
-        self.boxsize = boxsize
-        self.MASS, self.SDSS, self.USNOB = self._query_all()
+        self.coords = (ra, dec) #decimal degrees
+        self.boxsize = boxsize  #arcseconds
+        self.MASS, self.SDSS, self.USNOB, self.APASS = self._query_all()
     
     def query_sdss( self ):
         return self.SDSS
@@ -91,8 +92,81 @@ class online_catalog_query():
     def query_usnob1( self ):
         return self.USNOB
     
+    def query_apass( self ):
+        return self.APASS
+    
     def query_all( self ):
-        return self.MASS, self.SDSS, self.USNOB
+        return self.MASS, self.SDSS, self.USNOB, self.APASS
+    
+    def _parse_apass( self, s ):
+        '''
+        Parse an APASS web request string.
+        
+        s: a string of the CSV returned by a query to the APASS page.
+          Example:
+          s = urllib2.urlopen('http://www.aavso.org/cgi-bin/apass_download.pl?ra=0.5&dec=85.&radius=.25&outtype=1').read()
+        
+        Note: it is common for APASS to report -0 as the error for an observation; from their website,
+         this merely means that the star was observed only once, and so their error determination
+         code does not predict the error correctly.  Currently, this function adopts an error of 0.15mag
+         for all of these observations. Missing observations are filled in with a zero.
+        '''
+        out = []
+        for line in s.split('\n')[1:]:
+            # discard any sources that have more than two absent observations
+            if line.count('NA') > 4:
+                continue
+            try:
+                row = line.split(',')
+                ra = float(row[0])
+                dec = float(row[2])
+                # magnitudes and errors
+                #  in order: V, V_sig, B, B_sig, g, g_sig, r, r_sig, i, i_sig
+                tmp = [ra, dec]
+                for obs in row[5:]:
+                    if (obs == '-0') or (obs == '0'):
+                        # mark missing errors as 0.15
+                        tmp.append( 0.15 )
+                    elif obs == 'NA':
+                        tmp.append( 0.0 )
+                    else:
+                        tmp.append( np.abs(float(obs)) )
+                # reshuffle so that it goes B, V, g, r, i
+                tmp = tmp[:2]+tmp[4:6]+tmp[2:4]+tmp[6:]
+                out.append( tmp )
+            except:
+                # silently fail on sources that are not formatted properly,
+                #  they are probably anomalous anyways.
+                pass
+        return np.array(out)
+    
+    
+    def _query_apass( self, container=None, cont_index=3 ):
+        '''
+        Query apass server for sources found in a box of width self.boxsize (arcsecs)
+        around self.coords.
+        Returns an array (if objects found) or None (if not)
+        
+        container: a list into which to put the result; used in multithreaded requests
+        cont_index: index of list into which to put the result
+        '''
+        ra,dec  = self.coords
+        boxsize = self.boxsize / 3600. #in degrees
+        # search for APASS objects around ra, dec, with a search radius of boxsize,
+        #  and return the result in a CSV string
+        request = 'http://www.aavso.org/cgi-bin/apass_download.pl?ra={}&dec={}&radius={}&outtype=1'.format(ra, dec, boxsize)
+        o = urlopen( request ).read()
+        apass_objects = self._parse_apass(o)
+        if len(apass_objects) == 0:
+            # no matches
+            output = None
+        else:
+            output = apass_objects
+        if container == None:
+            return output
+        else:
+            container[ cont_index ] = output
+    
     
     def _parse_sdss( self, s ):
         '''
@@ -129,12 +203,12 @@ class online_catalog_query():
     
     def _query_sdss( self, container=None, cont_index=1, trim_mag=21. ):
         '''
-        Query sdss8 server for sources found in a box of width boxsize (arcsecs)
-        around ra,dec.
+        Query sdss8 server for sources found in a box of width self.boxsize (arcsecs)
+        around self.coords.
         Returns an array (if objects found) or None (if not)
         
-        ra,dec: coordinates in decimal degrees
-        boxsize: width of box in which to query
+        container: a list into which to put the result; used in multithreaded requests
+        cont_index: index of list into which to put the result
         trim_mag: do not return sources with r > trim_mag
         '''
         ra,dec  = self.coords
@@ -198,12 +272,12 @@ class online_catalog_query():
     
     def _query_2mass( self, container=None, cont_index=0 ):
         '''
-        Query 2mass server for sources found in a box of width boxsize (arcsecs)
-        around ra,dec.
+        Query 2mass server for sources found in a box of width self.boxsize (arcsecs)
+        around self.coords.
         Returns an array (if objects found) or None (if not)
         
-        ra,dec: coordinates in decimal degrees
-        boxsize: width of box in which to query
+        container: a list into which to put the result; used in multithreaded requests
+        cont_index: index of list into which to put the result
         '''
         ra,dec  = self.coords
         boxsize = self.boxsize
@@ -301,12 +375,12 @@ class online_catalog_query():
     
     def _query_usnob1( self, container=None, cont_index=2 ):
         '''
-        Query usnob1 server for sources found in a box of width boxsize (arcsecs)
-        around ra,dec.
+        Query usnob1 server for sources found in a box of width self.boxsize (arcsecs)
+        around self.coords.
         Returns an array (if objects found) or None (if not)
         
-        ra,dec: coordinates in decimal degrees
-        boxsize: width of box in which to query
+        container: a list into which to put the result; used in multithreaded requests
+        cont_index: index of list into which to put the result
         '''
         ra,dec  = self.coords
         boxsize = self.boxsize
@@ -340,11 +414,12 @@ class online_catalog_query():
         ra,dec  = self.coords
         boxsize = self.boxsize
         # results is a container into which the threads will put their responses
-        results = [None]*3
+        results = [None]*4
         t0 = Thread(target=self._query_2mass, args=(results,))
         t1 = Thread(target=self._query_sdss, args=(results,))
-        t2 = Thread(target=self._query_usnob1, args=(results,))    
-        threads = [t0, t1, t2]
+        t2 = Thread(target=self._query_usnob1, args=(results,))
+        t4 = Thread(target=self._query_apass, args=(results,))
+        threads = [t0, t1, t2, t4]
         for t in threads:
             t.start()
         for t in threads:
@@ -569,8 +644,7 @@ def choose_model( obs, mask, models=MODELS, allow_cut=False ):
 
 def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
     '''
-    Wrapper function for choose_model to facilitate multiprocessor
-     use ( in catalog.produce_catalog() )
+    Wrapper function for choose_model to facilitate multiprocessor use in catalog.produce_catalog()
     
     If return_cut == True, any observations that are ignored in the fitting
      procedure are replaced by the modeled result.  Otherwise, observed
@@ -583,14 +657,19 @@ def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
         mask = [1,1,1,1,1, 0, 0,0,0,0, 1,1,1]
         allow_cut = True
     elif mode == 1: # usnob+2mass
-        mask = [0,0,0,0,0, 0, 0,0,0,0, 1,1,1]
-        # the code allows for 2 or 3 usnob obs, so make sure we handle that correctly
-        if obs[0] > 0:
-            mask[6] = 1
-        if obs[2] > 0:
-            mask[8] = 1
-        if obs[4] > 0:
-            mask[9] = 1
+        mask = [0,0,0,0,0, 0, 1,0,1,1, 1,1,1]
+        # we can allow for 2 or 3 usnob obs, so make sure we handle that correctly
+        for i,imask in enumerate([6,8,9]):
+            if obs[2*i] == 0:
+                mask[imask] = 0
+        obs = obs[ obs>0 ]
+        allow_cut = True
+    elif mode == 2: # apass+2mass
+        mask = [0,1,1,1,0, 0, 1,1,0,0, 1,1,1]
+        # we allow 3 - 5 APASS observations, so make sure to handle that correctly
+        for i,imask in enumerate([1,2,3,6,7]):
+            if obs[2*i] == 0:
+                mask[imask] = 0
         obs = obs[ obs>0 ]
         allow_cut = True
         
@@ -607,9 +686,12 @@ def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
     # and return errors as estimated by model Chi^2
     for band in npALL_FILTERS[~mask]:
         i_band = FILTER_PARAMS[band][-1]
-        # temporary fill-in for when USNOB bands get cut
+        # temporary fill-in for when USNOB bands are gone or get cut
         if (mode == 1) and (band in ['B','R','I']):
             full_errs[i_band] = 0.5
+        # temporary fill-in for APASS bands
+        elif (mode == 2):
+            full_errs[i_band] = 0.25
         else:
             full_errs[i_band] = f_err[mode][band]( min(err, f_err[mode]['range'][1]) )
     
@@ -650,7 +732,7 @@ class catalog():
      ignore_sdss: if True, will not use any SDSS magnitudes in modeling. Used for testing.
     '''
     MAX_SIZE = 7200 # max size of largest single query
-    ERR_CUT  = (8., 2.5)   # maximum reduced chi^2 to keep a fit (SDSS, USNOB)
+    ERR_CUT  = (8., 2.5, 5.)   # maximum reduced chi^2 to keep a fit (SDSS, USNOB, APASS)
     
     def __init__( self, field_center, field_width, input_coords=None, ignore_sdss=False ):
         self.field_center = field_center
@@ -683,7 +765,7 @@ class catalog():
         '''
         ra,dec = self.field_center
         q = online_catalog_query( ra, dec, self.field_width )
-        mass, sdss, usnob = q.query_all()
+        mass, sdss, usnob, apass = q.query_all()
         
         object_mags = []
         modes = []
@@ -695,29 +777,37 @@ class catalog():
                 if not np.sum( np.isfinite(tmp) ):
                     raise ValueError( 'No matches found!' )
                 mass = mass[ input_matches>=0 ]
-            # match sdss, usnob objects to 2mass objects
+            # match sdss, apass, usnob objects to 2mass objects
             if sdss != None and not self.ignore_sdss:
                 sdss_matches, tmp = identify_matches( mass[:,:2], sdss[:,:2] )
             else:
                 sdss_matches = -9999*np.ones(len(mass), dtype='int')
+            if apass != None:
+                apass_matches, tmp = identify_matches( mass[:,:2], apass[:,:2] )
+            else:
+                apass_matches = -9999*np.ones(len(mass), dtype='int')
             if usnob != None:
                 usnob_matches, tmp = identify_matches( mass[:,:2], usnob[:,:2] )
             else:
                 usnob_matches = -9999*np.ones(len(mass), dtype='int')
             
             # Go through 2mass objects and assemble a catalog
-            #  of all objects present in 2mass and (sdss or usnob)
-            #  Use 2mass+sdss OR 2mass+usnob (ignore usnob if sdss present)
+            #  of all objects present in 2mass and (sdss or apass or usnob)
+            #  Preference ranking: 2MASS + (SDSS > APASS > USNOB)
             for i,obj in enumerate(mass):
                 if (sdss_matches[i]>=0):
                     i_sdss = sdss_matches[i]
                     obs = np.hstack( (sdss[i_sdss][2:], obj[2:]) )
                     mode = 0
-                elif (sdss_matches[i]<0) and (usnob_matches[i]>=0):
+                elif (apass_matches[i]>=0):
+                    i_apass = apass_matches[i]
+                    obs = np.hstack( (apass[i_apass][2:], obj[2:]) )
+                    mode = 2
+                elif (usnob_matches[i]>=0):
                     i_usnob = usnob_matches[i]
                     obs = np.hstack( (usnob[i_usnob][2:], obj[2:]) )
                     mode = 1
-                elif (sdss_matches[i]<0) and (usnob_matches[i]<0):
+                else:
                     continue
                 object_mags.append( obs )
                 modes.append( mode )

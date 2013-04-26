@@ -131,8 +131,8 @@ class online_catalog_query():
                         tmp.append( 0.0 )
                     else:
                         tmp.append( np.abs(float(obs)) )
-                # reshuffle so that it goes B, V, g, r, i
-                tmp = tmp[:2]+tmp[4:6]+tmp[2:4]+tmp[6:]
+                # reshuffle so that it goes g, r, i, B, V
+                tmp = tmp[:2]+tmp[6:]+tmp[4:6]+tmp[2:4]
                 out.append( tmp )
             except:
                 # silently fail on sources that are not formatted properly,

@@ -3,12 +3,10 @@ Library to produce a catalog of fully-populated SEDs and calculating
 zeropoints for any arbitrary location on the sky, using a combination 
 of online catalogs (USNOB1, 2MASS, SDSS) and synthetic photometry.
 
-Requires:
-- all_models_P.npy, a file produced by assemble_models.py
-
 To Do:
 - add proper distutils setup
-- convert all absolute paths to os.path.join kind of things
+
++ move mode 2 (APASS) to mode 1 (USNOB)
 '''
 
 
@@ -20,7 +18,7 @@ from subprocess import Popen, PIPE
 from scipy.optimize import fmin_bfgs
 from scipy.interpolate import interp1d
 import scipy.spatial.kdtree
-from os.path import isfile
+from os.path import isfile, dirname, join
 from threading import Thread
 from time import time, strftime
 from urllib2 import urlopen
@@ -29,8 +27,11 @@ import pickle
 import multiprocessing as mp
 N_CORES = mp.cpu_count()  # use all the cpus you have
 
+# use the __file__ variable to point to the static files
+#  Note: __file__ points to the location of this file,
+#  so the static files below MUST be in the same folder.
 try:
-    MODELS = np.load( open('all_models_trim.npy','r') )
+    MODELS = np.load( open( join(dirname(__file__), 'all_models.npy'),'r') )
     # rezero so that K=0 for all models
     for row in MODELS[1:]:
         row[1:] = row[1:] - row[-1]
@@ -38,7 +39,7 @@ except:
     raise IOError('cannot find models file')
 
 try:
-    err_dict = pickle.load(open('err_dict.p', 'r'))
+    err_dict = pickle.load( open( join(dirname(__file__), 'err_dict.p'), 'r') )
     ERR_FUNCTIONS = {}
     for mode in [0,1]:
         ERR_FUNCTIONS[mode] = {}
@@ -113,7 +114,7 @@ class online_catalog_query():
         '''
         out = []
         for line in s.split('\n')[1:]:
-            # discard any sources that have more than two absent observations
+            # discard any sources that have more than one two observations
             if line.count('NA') > 4:
                 continue
             try:
@@ -729,19 +730,19 @@ class catalog():
     
     Optional arguments:
      input_coords: if given, will only attempt to produce a catalog for these sources.
-     ignore_sdss: if True, will not use any SDSS magnitudes in modeling. Used for testing.
+     ignore: option to ignore any of the bands but 2mass. Can be list or single item, options
+      are:  ["sdss", "usnob", "apass"]
     '''
     MAX_SIZE = 7200 # max size of largest single query
     ERR_CUT  = (8., 2.5, 5.)   # maximum reduced chi^2 to keep a fit (SDSS, USNOB, APASS)
     
-    def __init__( self, field_center, field_width, input_coords=None, ignore_sdss=False ):
+    def __init__( self, field_center, field_width, input_coords=None, ignore=None ):
         self.field_center = field_center
         self.field_width = field_width
         if input_coords != None:
             self.input_coords = np.array(input_coords)
         else:
             self.input_coords = input_coords
-        self.ignore_sdss = ignore_sdss
         self.coords = []
         self.SEDs = []
         self.full_errors = []
@@ -750,7 +751,15 @@ class catalog():
         self.modes = []
         self.numcut = 0
         self.bands = ALL_FILTERS
-        
+        self.ignore_apass = self.ignore_sdss = self.ignore_usnob = False
+        if ignore != None:
+            # handles both list of strings and single string form
+            if 'sdss' in ignore:
+                self.ignore_sdss = True
+            if 'usnob' in ignore:
+                self.ignore_usnob = True
+            if 'apass' in ignore:
+                self.ignore_apass = True
         if field_width > self.MAX_SIZE:
             # simply don't allow queries that are too large
             raise ValueError( 'Field is too large. Max allowed: {}"'.format(self.MAX_SIZE) )
@@ -782,11 +791,11 @@ class catalog():
                 sdss_matches, tmp = identify_matches( mass[:,:2], sdss[:,:2] )
             else:
                 sdss_matches = -9999*np.ones(len(mass), dtype='int')
-            if apass != None:
+            if apass != None and not self.ignore_apass:
                 apass_matches, tmp = identify_matches( mass[:,:2], apass[:,:2] )
             else:
                 apass_matches = -9999*np.ones(len(mass), dtype='int')
-            if usnob != None:
+            if usnob != None and not self.ignore_usnob:
                 usnob_matches, tmp = identify_matches( mass[:,:2], usnob[:,:2] )
             else:
                 usnob_matches = -9999*np.ones(len(mass), dtype='int')

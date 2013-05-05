@@ -1,5 +1,9 @@
 """
 Suite of tests to compare my code's predictions to APASS, UKIDSS, SDSS, and USNOB.
+
+To Do:
+ - add error dict for all colors from APASS
+ 
 """
 
 import numpy as np
@@ -34,18 +38,20 @@ def compare_to_SDSS( field_center, field_width, clip=True, colors=COLORS ):
             model_err.append( c.model_errors[match] )
     model_matches = np.array(model_matches)
     obs_matches = np.array(obs_matches)
+    matched_modes.append( c.modes[match] )
     
     bins = np.linspace(-1, 1, 20)
     for i,filt in enumerate(['u','g','r','i','z']):
         ccc = colors[i]
         i_filt = gs.FILTER_PARAMS[filt][-1]
         err = obs_matches[:,i] - model_matches[:,i_filt]
-        if clip: err = gs.clip_me( err )
+        if clip:
+            err = gs.clip_me( err )
         med = np.median( err )
         mad = np.median( np.abs( err-np.median(err) ) )
         
         plt.figure(1)
-        plt.hist( err, bins=bins, alpha=.8, color=ccc, linewidth=3, histtype='step', normed=True, label=filt+": %.2f -- %.2f" %(med, mad))
+        plt.hist( err, bins=bins, alpha=.8, color=ccc, linewidth=3, histtype='step', normed=True, label=filt+": %.2f -- %.2f (%s)" %(med, mad, 'usnob'))
         
         plt.figure(2)
         err = obs_matches[:,i] - model_matches[:,i_filt]
@@ -89,7 +95,7 @@ def compare_to_SDSS( field_center, field_width, clip=True, colors=COLORS ):
     plt.show()
 
 
-def web_plots_SDSS( size=1800., coords=COORDS ):
+def web_plots_SDSS( size=1800., coords=COORDS, ignore='sdss' ):
     '''
     produce web plot and error report for SDSS predicted from USNOB
     '''
@@ -105,32 +111,65 @@ def web_plots_SDSS( size=1800., coords=COORDS ):
         
         q = gs.online_catalog_query( field_center[0], field_center[1], size )
         sdss = q.query_sdss()
-        c = gs.catalog( field_center, size, ignore_sdss=True )
+        c = gs.catalog( field_center, size, ignore=ignore )
         matches,tmp = gs.identify_matches( sdss[:,:2], c.coords )
         
         model_matches = []
         obs_matches = []
         model_err = []
         models = []
+        matched_modes = []
         for i,match in enumerate(matches):
-          if match >= 0:
-              model_matches.append( c.SEDs[match] )
-              obs_matches.append( sdss[i,2:][::2] )
-              model_err.append( c.model_errors[match] )
-              models.append( c.models[match] )
+            if match >= 0:
+                model_matches.append( c.SEDs[match] )
+                obs_matches.append( sdss[i,2:][::2] )
+                model_err.append( c.model_errors[match] )
+                models.append( c.models[match] )
+                matched_modes.append( c.modes[match] )
         model_matches = np.array(model_matches)
         obs_matches = np.array(obs_matches)
+        matched_modes = np.array(matched_modes)
+        
+        # temporary: a plot-up of some of the results
+        '''
+        from time import sleep
+        numplot = 40
+        plt.ion()
+        plt.figure(20)
+        plt.show()
+        all_wl = [ gs.FILTER_PARAMS[key][0] for key in gs.ALL_FILTERS ]
+        all_zp = np.array([ gs.FILTER_PARAMS[key][1] for key in gs.ALL_FILTERS ])
+        sdss_wl = [3551., 4686., 6165., 7481., 8931.]
+        sdss_zp = np.array( [8.6387e-9, 4.9607e-9, 2.8660e-9, 1.9464e-9, 1.3657e-9] )
+        for i,model in enumerate(model_matches[:numplot]):
+            print 'mode:',matched_modes[i]
+            
+            fluxmodel = np.log10( all_zp*10**(-.4*model) )
+            fluxsdss  = np.log10( sdss_zp*10**(-.4*obs_matches[i]) )
+            plt.clf()
+            plt.scatter( all_wl, fluxmodel, marker='x', c='g', label='model' )
+            plt.scatter( sdss_wl, fluxsdss, marker='o', c='r', label='sdss' )
+            plt.title( '{} of {}'.format(i, numplot) )
+            plt.legend(loc=4)
+            if i==0: plt.gca().invert_yaxis()
+            plt.draw()
+            #raw_input('\nenter to continue')
+            sleep(.25)
+        plt.close()
+        plt.ioff()
+        '''
         
         for i,band in enumerate(['u','g','r','i','z']):
             # the histogram
             i_filt = gs.FILTER_PARAMS[band][-1]
+            
             err = gs.clip_me(obs_matches[:,i] - model_matches[:,i_filt])
             med = np.median( err )
             mad = np.median( np.abs( err-np.median(err) ) )
             medians[band].append(med); mads[band].append(mad)
             
             plt.figure(i)
-            plt.hist( err, bins=bins, alpha=.8, linewidth=3, histtype='step', normed=True, color=ccc,\
+            plt.hist( err, bins=bins, alpha=.8, linewidth=2, histtype='step', normed=True, color=ccc,\
                            label="(%.2f, %.2f)" %(field_center[0], field_center[1]))
             
             # the scatterplot
@@ -167,7 +206,7 @@ def web_plots_SDSS( size=1800., coords=COORDS ):
     
     for i,band in enumerate(['u','g','r','i','z']):
         plt.figure(i)
-        plt.xlabel('Error in {}-band (mag)'.format(band))
+        plt.xlabel('SDSS-Model in {}-band (mag)'.format(band))
         plt.ylabel('Normalized Count')
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
@@ -348,7 +387,7 @@ def compare_to_UKIDSS( field_center, field_size, fn='data/ukidss_all.csv', clip=
     plt.show()
 
 
-def web_plots_UKIDSS( size=1800., ignore_sdss=True, coords=COORDS ):
+def web_plots_UKIDSS( size=1800., coords=COORDS, ignore='sdss' ):
     '''
     Produce web plots for UKIDSS y compared to model y
     '''
@@ -369,7 +408,7 @@ def web_plots_UKIDSS( size=1800., ignore_sdss=True, coords=COORDS ):
         print 'Starting field %.2f, %.2f\n\n' %(field_center[0], field_center[1])
         ccc = COLORS[i_field]
         
-        c = gs.catalog( field_center, size, input_coords=input_coords, ignore_sdss=ignore_sdss )
+        c = gs.catalog( field_center, size, input_coords=input_coords, ignore=ignore )
         matches,tmp = gs.identify_matches( input_coords, c.coords )
         
         i_y = gs.FILTER_PARAMS['y'][-1]
@@ -402,7 +441,7 @@ def web_plots_UKIDSS( size=1800., ignore_sdss=True, coords=COORDS ):
         
         plt.figure(2)
         plt.scatter( model_err, np.abs(err), c=ccc, alpha=.5, marker='+' )
-        if ignore_sdss:
+        if 'sdss' in ignore:
             dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
         else:
             dbins = np.array( [0, .5, 1., 2., 5., 8.] )
@@ -725,13 +764,13 @@ def check_APASS_phot(size=1800 ):
     return medians, mads
 
 
-def compare_to_Stetson( field, ignore_sdss=True, clip=True, colors=['b','g','r','orange'] ):
+def compare_to_Stetson( field, ignore='sdss', clip=True, colors=['b','g','r','orange'] ):
     input_coords = np.loadtxt('data/'+field+'.pos.clean', skiprows=1)
     data = np.loadtxt('data/'+field+'.pho.clean', skiprows=1)
     obs = data[:,1:] #B,V,R,I
     
     field_center,field_size = gs.find_field( input_coords )
-    c = gs.catalog( field_center, max(field_size), input_coords=input_coords, ignore_sdss=ignore_sdss )
+    c = gs.catalog( field_center, max(field_size), input_coords=input_coords, ignore=ignore )
     matches,tmp = gs.identify_matches( input_coords, c.coords )
     
     model_matches = []
@@ -814,7 +853,7 @@ def compare_to_Stetson( field, ignore_sdss=True, clip=True, colors=['b','g','r',
 
 
 FIELDS = ['L112', 'L113', 'L92', 'L95', 'PG0231'] #'IC1613', 
-def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','orange','grey','yellow'] ):
+def web_plots_Stetson( fields=FIELDS, ignore='sdss', colors=['b','g','r','orange','grey','yellow'] ):
     
     medians = { 'B':[], 'V':[], 'R':[], 'I':[] }
     mads = { 'B':[], 'V':[], 'R':[], 'I':[] }
@@ -829,7 +868,7 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
         obs = data[:,1:] #B,V,R,I
     
         field_center,field_size = gs.find_field( input_coords )
-        c = gs.catalog( field_center, max(field_size), input_coords=input_coords, ignore_sdss=ignore_sdss )
+        c = gs.catalog( field_center, max(field_size), input_coords=input_coords, ignore=ignore )
         matches,tmp = gs.identify_matches( input_coords, c.coords )
         
         model_matches = []
@@ -871,7 +910,7 @@ def web_plots_Stetson( fields=FIELDS, ignore_sdss=True, colors=['b','g','r','ora
             merr = model_err[ obs_matches[:,i]!=99.999 ]
             plt.scatter( merr, np.abs(err), c=ccc, alpha=.5, marker='+')
             
-            if ignore_sdss:
+            if 'sdss' in ignore:
                 dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
             else:
                 dbins = np.array( [0, .5, 1., 2., 5., 8.] )
@@ -1148,21 +1187,21 @@ if __name__ == '__main__':
     x = [dbins[0]] + x + [dbins[-1]]
     err_dict[1]['x'] = x
     
-    med,mad,onesig = web_plots_SDSS(size=3600.)
+    med,mad,onesig = web_plots_SDSS(size=3600., ignore=['sdss','apass'])
     clear_all_figs()
     for band in onesig.keys():
         errs = np.mean( np.array(onesig[band]), axis=0 )
         err_dict[1][band] = errs
         
-    med,mad,onesig = web_plots_UKIDSS(size=3600.)
+    med,mad,onesig = web_plots_UKIDSS(size=3600., ignore=['sdss','apass'])
     clear_all_figs()
     errs = np.mean( np.array(onesig), axis=0 )
     err_dict[1]['y'] = errs
     
-    med,mad,onesig = web_plots_Stetson()
+    med,mad,onesig = web_plots_Stetson( ignore=['sdss','apass'] )
     clear_all_figs()
     for band in onesig.keys():
-        if band == 'B' or band == 'R': continue
+        if band in ['B','R']: continue
         errs = np.mean( np.array(onesig[band]), axis=0 )
         err_dict[1][band] = errs
     
@@ -1174,16 +1213,43 @@ if __name__ == '__main__':
     x = [dbins[0]] + x + [dbins[-1]]
     err_dict[0]['x'] = x
     
-    med,mad,onesig = web_plots_UKIDSS(size=3600., ignore_sdss=False)
+    med,mad,onesig = web_plots_UKIDSS(size=3600., ignore=['apass','usnob'])
     clear_all_figs()
     errs = np.mean( np.array(onesig), axis=0 )
     err_dict[0]['y'] = errs
     
-    med,mad,onesig = web_plots_Stetson(ignore_sdss=True)
+    med,mad,onesig = web_plots_Stetson(ignore=['apass','usnob'])
     clear_all_figs()
     for band in onesig.keys():
         errs = np.mean( np.array(onesig[band]), axis=0 )
         err_dict[0][band] = errs
+    
+    # finally, mode 2 (apass)
+    err_dict[2] = {}
+    dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
+    delt_bin = dbins[1:]-dbins[:-1]
+    x = list(dbins[1:]-delt_bin/2)
+    x = [dbins[0]] + x + [dbins[-1]]
+    err_dict[2]['x'] = x
+    
+    med,mad,onesig = web_plots_SDSS(size=3600., ignore=['sdss','usnob'])
+    clear_all_figs()
+    for band in onesig.keys():
+        if band in ['g','r','i']: continue
+        errs = np.mean( np.array(onesig[band]), axis=0 )
+        err_dict[2][band] = errs
+        
+    med,mad,onesig = web_plots_UKIDSS(size=3600., ignore=['sdss','usnob'])
+    clear_all_figs()
+    errs = np.mean( np.array(onesig), axis=0 )
+    err_dict[2]['y'] = errs
+    
+    med,mad,onesig = web_plots_Stetson( ignore=['sdss','usnob'] )
+    clear_all_figs()
+    for band in onesig.keys():
+        if band in ['B','V']: continue
+        errs = np.mean( np.array(onesig[band]), axis=0 )
+        err_dict[2][band] = errs
         
     # now save our error dictionary to file
     pickle.dump( err_dict, open('err_dict.p','w') )

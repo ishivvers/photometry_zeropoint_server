@@ -206,7 +206,7 @@ def web_plots_SDSS( size=1800., coords=COORDS, ignore='sdss' ):
     
     for i,band in enumerate(['u','g','r','i','z']):
         plt.figure(i)
-        plt.xlabel('SDSS-Model in {}-band (mag)'.format(band))
+        plt.xlabel('Error in {}-band (mag)'.format(band))
         plt.ylabel('Normalized Count')
         leg = plt.legend(loc='best', fancybox=True)
         leg.get_frame().set_alpha(0.0)
@@ -1179,31 +1179,31 @@ if __name__ == '__main__':
     
     err_dict = {}
     
-    # first, mode 1 (USNOB)
-    err_dict[1] = {}
+    # first, mode 2 (USNOB)
+    err_dict[2] = {}
     dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
     delt_bin = dbins[1:]-dbins[:-1]
     x = list(dbins[1:]-delt_bin/2)
     x = [dbins[0]] + x + [dbins[-1]]
-    err_dict[1]['x'] = x
+    err_dict[2]['x'] = x
     
     med,mad,onesig = web_plots_SDSS(size=3600., ignore=['sdss','apass'])
     clear_all_figs()
     for band in onesig.keys():
         errs = np.mean( np.array(onesig[band]), axis=0 )
-        err_dict[1][band] = errs
+        err_dict[2][band] = errs
         
     med,mad,onesig = web_plots_UKIDSS(size=3600., ignore=['sdss','apass'])
     clear_all_figs()
     errs = np.mean( np.array(onesig), axis=0 )
-    err_dict[1]['y'] = errs
+    err_dict[2]['y'] = errs
     
     med,mad,onesig = web_plots_Stetson( ignore=['sdss','apass'] )
     clear_all_figs()
     for band in onesig.keys():
         if band in ['B','R']: continue
         errs = np.mean( np.array(onesig[band]), axis=0 )
-        err_dict[1][band] = errs
+        err_dict[2][band] = errs
     
     # now, mode 0 (SDSS)
     err_dict[0] = {}
@@ -1224,32 +1224,32 @@ if __name__ == '__main__':
         errs = np.mean( np.array(onesig[band]), axis=0 )
         err_dict[0][band] = errs
     
-    # finally, mode 2 (apass)
-    err_dict[2] = {}
+    # finally, mode 1 (apass)
+    err_dict[1] = {}
     dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
     delt_bin = dbins[1:]-dbins[:-1]
     x = list(dbins[1:]-delt_bin/2)
     x = [dbins[0]] + x + [dbins[-1]]
-    err_dict[2]['x'] = x
+    err_dict[1]['x'] = x
     
     med,mad,onesig = web_plots_SDSS(size=3600., ignore=['sdss','usnob'])
     clear_all_figs()
     for band in onesig.keys():
         if band in ['g','r','i']: continue
         errs = np.mean( np.array(onesig[band]), axis=0 )
-        err_dict[2][band] = errs
+        err_dict[1][band] = errs
         
     med,mad,onesig = web_plots_UKIDSS(size=3600., ignore=['sdss','usnob'])
     clear_all_figs()
     errs = np.mean( np.array(onesig), axis=0 )
-    err_dict[2]['y'] = errs
+    err_dict[1]['y'] = errs
     
     med,mad,onesig = web_plots_Stetson( ignore=['sdss','usnob'] )
     clear_all_figs()
     for band in onesig.keys():
         if band in ['B','V']: continue
         errs = np.mean( np.array(onesig[band]), axis=0 )
-        err_dict[2][band] = errs
+        err_dict[1][band] = errs
         
     # now save our error dictionary to file
     pickle.dump( err_dict, open('err_dict.p','w') )
@@ -1270,22 +1270,29 @@ SDSS from USNOB
  r - 0.18
  i - 0.12
  z - 0.07
+SDSS from APASS
+ u - 0.13
+ z - 0.05
 
 UKIDSS from USNOB
  y - 0.03
 UKIDSS from SDSS
  y - 0.03
+UKIDSS from APASS
+ y - 0.04  #real! probably due to fewer number of sources
 
 Stetson from USNOB
  B - 0.48
  V - 0.24
  R - 0.14
  I - 0.10
-
 Stetson from SDSS
  B - 0.07
  V - 0.07
  R - 0.05
  I - 0.03
+Stetson from APASS
+ R - 0.03
+ I - 0.02
 
 '''

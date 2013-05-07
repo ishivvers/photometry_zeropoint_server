@@ -6,7 +6,6 @@ of online catalogs (USNOB1, 2MASS, SDSS) and synthetic photometry.
 To Do:
 - add proper distutils setup
 
-+ move mode 2 (APASS) to mode 1 (USNOB)
 '''
 
 
@@ -41,7 +40,7 @@ except:
 try:
     err_dict = pickle.load( open( join(dirname(__file__), 'err_dict.p'), 'r') )
     ERR_FUNCTIONS = {}
-    for mode in [0,1]:
+    for mode in [0,1,2]:
         ERR_FUNCTIONS[mode] = {}
         ERR_FUNCTIONS[mode]['range'] = (err_dict[mode]['x'][0], err_dict[mode]['x'][-1])
         for band in err_dict[mode].keys():
@@ -574,7 +573,6 @@ def _error_C(C, model, obs, weights):
     nm = model+C
     return np.sum( weights*(nm-obs)**2 )
 
-
 def choose_model( obs, mask, models=MODELS, allow_cut=False ):
     '''
     Find and return the best model for obs.
@@ -642,7 +640,6 @@ def choose_model( obs, mask, models=MODELS, allow_cut=False ):
         metric = sum_sqr_err/(len(mags) - 2)
     return (best_model[1:] + C, C, best_model[0], metric, i_cut )
 
-
 def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
     '''
     Wrapper function for choose_model to facilitate multiprocessor use in catalog.produce_catalog()
@@ -657,18 +654,18 @@ def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
     if mode == 0: # sdss+2mass
         mask = [1,1,1,1,1, 0, 0,0,0,0, 1,1,1]
         allow_cut = True
-    elif mode == 1: # usnob+2mass
-        mask = [0,0,0,0,0, 0, 1,0,1,1, 1,1,1]
-        # we can allow for 2 or 3 usnob obs, so make sure we handle that correctly
-        for i,imask in enumerate([6,8,9]):
+    elif mode == 1: # apass+2mass
+        mask = [0,1,1,1,0, 0, 1,1,0,0, 1,1,1]
+        # we allow 3 - 5 APASS observations, so make sure to handle that correctly
+        for i,imask in enumerate([1,2,3,6,7]):
             if obs[2*i] == 0:
                 mask[imask] = 0
         obs = obs[ obs>0 ]
         allow_cut = True
-    elif mode == 2: # apass+2mass
-        mask = [0,1,1,1,0, 0, 1,1,0,0, 1,1,1]
-        # we allow 3 - 5 APASS observations, so make sure to handle that correctly
-        for i,imask in enumerate([1,2,3,6,7]):
+    elif mode == 2: # usnob+2mass
+        mask = [0,0,0,0,0, 0, 1,0,1,1, 1,1,1]
+        # we can allow for 2 or 3 usnob obs, so make sure we handle that correctly
+        for i,imask in enumerate([6,8,9]):
             if obs[2*i] == 0:
                 mask[imask] = 0
         obs = obs[ obs>0 ]
@@ -688,10 +685,10 @@ def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
     for band in npALL_FILTERS[~mask]:
         i_band = FILTER_PARAMS[band][-1]
         # temporary fill-in for when USNOB bands are gone or get cut
-        if (mode == 1) and (band in ['B','R','I']):
+        if (mode == 2) and (band in ['B','R']):  #note: assuming we always model I
             full_errs[i_band] = 0.5
-        # temporary fill-in for APASS bands
-        elif (mode == 2):
+        # temporary fill-in for when APASS bands are gone or get cut
+        elif (mode == 1) and (band in ['B','V','g','r','i']):
             full_errs[i_band] = 0.25
         else:
             full_errs[i_band] = f_err[mode][band]( min(err, f_err[mode]['range'][1]) )
@@ -734,7 +731,7 @@ class catalog():
       are:  ["sdss", "usnob", "apass"]
     '''
     MAX_SIZE = 7200 # max size of largest single query
-    ERR_CUT  = (8., 2.5, 5.)   # maximum reduced chi^2 to keep a fit (SDSS, USNOB, APASS)
+    ERR_CUT  = (8., 5., 2.5)   # maximum reduced chi^2 to keep a fit (SDSS, APASS, USNOB)
     
     def __init__( self, field_center, field_width, input_coords=None, ignore=None ):
         self.field_center = field_center
@@ -811,11 +808,11 @@ class catalog():
                 elif (apass_matches[i]>=0):
                     i_apass = apass_matches[i]
                     obs = np.hstack( (apass[i_apass][2:], obj[2:]) )
-                    mode = 2
+                    mode = 1
                 elif (usnob_matches[i]>=0):
                     i_usnob = usnob_matches[i]
                     obs = np.hstack( (usnob[i_usnob][2:], obj[2:]) )
-                    mode = 1
+                    mode = 2
                 else:
                     continue
                 object_mags.append( obs )
@@ -873,7 +870,6 @@ class catalog():
             return out_dict
     
 
-
 def save_catalog( coordinates, seds, errors, modes, file_name ):
     '''
     Save an output ASCII file of the catalog.
@@ -884,11 +880,12 @@ def save_catalog( coordinates, seds, errors, modes, file_name ):
     fff.write('# Observed/modeled SEDs produced by get_SEDs.py \n' +
               '# Generated: {}\n'.format(strftime("%H:%M %B %d, %Y")) +
               '#  Mode = 0: -> B,V,R,I,y modeled from SDSS and 2-MASS\n' +
-              '#  Mode = 1: -> u,g,r,i,z,y,V,I modeled from USNOB-1 and 2-MASS\n' +
-              "# " + "RA".ljust(8) + "DEC".ljust(10) + "".join([f.ljust(8) for f in ALL_FILTERS]) + \
+              '#       = 1: -> u,y,R,I modeled from APASS and 2-MASS\n' +
+              '#       = 2: -> u,g,r,i,z,y,V,I modeled from USNOB-1 and 2-MASS\n' +
+              "# " + "RA".ljust(10) + "DEC".ljust(12) + "".join([f.ljust(8) for f in ALL_FILTERS]) + \
               "".join([(f+"_err").ljust(8) for f in ALL_FILTERS]) + "Mode\n")
     for i,row in enumerate(seds):
-        row_txt = "".join([ s.ljust(10) for s in map(lambda x: "%.6f"%x, coordinates[i]) ]) +\
+        row_txt = "".join([ s.ljust(12) for s in map(lambda x: "%.6f"%x, coordinates[i]) ]) +\
                   "".join([ s.ljust(8) for s in map(lambda x: "%.3f"%x, row) ]) +\
                   "".join([ s.ljust(8) for s in map(lambda x: "%.3f"%x, errors[i]) ]) +\
                   str(modes[i])+"\n"

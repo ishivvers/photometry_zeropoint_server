@@ -511,50 +511,26 @@ def find_field( coords, extend=3. ):
     return out_c, widths
 
 
-def split_field( field_center, field_width, max_size, object_coords=None ):
+def split_field( field_center, field_width, nsplit ):
     '''
-    split a single field into multiple smaller chunks.
-    
-    field_center: (ra, dec) in decimal degrees
-    field_width: each side of box, in arcseconds (RA_width, DEC_width)
-    max_size: maximum size of tile, in arcseconds
-    object_coords: array of coordinates - if given, will only return chunks
-        that contain at least one of these sources
-        
-    Returns: list of new field centers, width of new fields (in arcseconds)
+    Split a large field (of width field_width) into nsplit smaller fields,
+     tiled to fill a square of edgesize field_width.
     '''
-    if object_coords != None:
-        object_coords = np.array(object_coords)
-        
-    a2d = 2.778e-4 #conversion between arcseconds & degrees
-    
-    R_n_tile = np.ceil(field_width[0]/max_size).astype(int) # number of tiles needed in RA
-    D_n_tile = np.ceil(field_width[1]/max_size).astype(int) # number of tiles needed in DEC
-    # use the width implied by larger of the two dimensions
-    w_tile = max( (field_width[0]/R_n_tile,field_width[1]/D_n_tile) )*a2d # width of each tile in degrees
-    
-    ra,dec = field_center
+    fw = field_width/3600. # in degreees
+    # assume dec is flat
+    dec = field_center[1]
+    decs = np.array([ (dec-fw/2 + (fw/nsplit/2)) + (fw/nsplit)*i for i in range(nsplit) ])
+    # do actual trig to find ra
+    ra = field_center[0]
+    dr = (fw/nsplit)/np.cos(dec)
+    ras = np.array([ (ra-(fw/2)/np.cos(dec) +(fw/nsplit/2)/np.cos(dec)) + dr*i for i in range(nsplit) ])
     centers = []
-    rr = ra - a2d*field_width[0]/2. + w_tile/2.  # the beginning positions of the tiling
-    for i in range(R_n_tile):
-        dd = dec - a2d*field_width[1]/2. + w_tile/2.
-        for j in range(D_n_tile):
-            centers.append( (rr, dd) )
-            dd += w_tile
-        rr += w_tile
-        
-    if object_coords != None:
-        # keep only those that contain sources
-        RAs = object_coords[:,0]
-        DECs = object_coords[:,1]
-        good_centers = []
-        for cent in centers:
-            tf_array = (np.abs(RAs - cent[0]) < w_tile/2.) & (np.abs(DECs - cent[1]) < w_tile/2.)
-            if any(tf_array):
-                good_centers.append(cent)
-        centers = good_centers
+    for i in range(len(ras)):
+        for j in range(len(decs)):
+            centers.append( [ras[i],decs[j]] )
+    return np.array(centers)
+
     
-    return centers, w_tile/a2d
 
 
 ############################################

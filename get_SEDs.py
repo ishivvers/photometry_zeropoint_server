@@ -531,7 +531,7 @@ def split_field( field_center, field_width, nsplit ):
     '''
     Split a large field (of width field_width) into nsplit smaller fields,
      tiled to fill a square of edgesize field_width.
-    Returns an array of pointings
+    Returns an array of pointings and the distances between field centers
     '''
     fw = field_width/3600. # in degreees
     # assume dec is flat
@@ -545,7 +545,7 @@ def split_field( field_center, field_width, nsplit ):
     for i in range(len(ras)):
         for j in range(len(decs)):
             centers.append( [ras[i],decs[j]] )
-    return np.array(centers)
+    return np.array(centers), (dr, fw/nsplit)
 
     
 

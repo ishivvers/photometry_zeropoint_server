@@ -77,11 +77,14 @@ class online_catalog_query():
      Mass, SDSS, USNOB1 = q.query_all()
      # OR #
      Mass = q.query_2mass() #same for all catalogs
+     
+     If an ignore argument (string or list: ['sdss','apass','usnob']) is included,
+      will not attempt to query that catalog.
     '''
-    def __init__(self, ra, dec, boxsize=10. ):
+    def __init__(self, ra, dec, boxsize=10., ignore=None ):
         self.coords = (ra, dec) #decimal degrees
         self.boxsize = boxsize  #arcseconds
-        self.MASS, self.SDSS, self.USNOB, self.APASS = self._query_all()
+        self.MASS, self.SDSS, self.USNOB, self.APASS = self._query_all( ignore=ignore )
     
     def query_sdss( self ):
         return self.SDSS
@@ -220,6 +223,8 @@ class online_catalog_query():
         request = 'findsdss8 -c "{} {}" -bs {} -lmr 0,{} -e0 -sr -m 1000000'.format( ra, dec, boxsize, trim_mag )
         out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
         o,e = out.communicate()
+        if e:
+            raise IOError('findsdss8 problem: '+e)
         # parse the response
         sdss_objects = self._parse_sdss(o)
         if len(sdss_objects) == 0:
@@ -288,6 +293,8 @@ class online_catalog_query():
         request = 'find2mass -c {} {} -bs {} -eb -sr -m 1000000'.format( ra, dec, boxsize )
         out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
         o,e = out.communicate()
+        if e:
+            raise IOError('find2mass problem: '+e)
         # parse the response
         mass_objects = self._parse_2mass(o)
         if len(mass_objects) == 0:
@@ -391,6 +398,8 @@ class online_catalog_query():
         request = 'findusnob1 -c {} {} -bs {} -eb -sr -m 1000000'.format( ra, dec, boxsize )
         out = Popen(request, shell=True, stdout=PIPE, stderr=PIPE)
         o,e = out.communicate()
+        if e:
+            raise IOError('findusnob1 problem: '+e)
         usnob1_objects = self._parse_usnob1(o)
         if len(usnob1_objects) == 0:
             # no matches
@@ -403,23 +412,30 @@ class online_catalog_query():
             container[ cont_index ] = output
     
     
-    def _query_all( self ):
+    def _query_all( self, ignore=None ):
         '''
         Query all sources, with an independent thread for each
          so that the communications happen concurrently, to save
          time.
         
-        returns: [2Mass, SDSS, USNOB1]
+        returns: [2Mass, SDSS, USNOB1, APASS]
         '''
         ra,dec  = self.coords
         boxsize = self.boxsize
         # results is a container into which the threads will put their responses
         results = [None]*4
+        # only query the ones we want
         t0 = Thread(target=self._query_2mass, args=(results,))
-        t1 = Thread(target=self._query_sdss, args=(results,))
-        t2 = Thread(target=self._query_usnob1, args=(results,))
-        t4 = Thread(target=self._query_apass, args=(results,))
-        threads = [t0, t1, t2, t4]
+        threads = [t0]
+        if ignore==None or 'sdss' not in ignore:
+            t1 = Thread(target=self._query_sdss, args=(results,))
+            threads.append(t1)
+        if ignore==None or 'usnob' not in ignore:
+            t2 = Thread(target=self._query_usnob1, args=(results,))
+            threads.append(t2)
+        if ignore==None or 'apass' not in ignore:
+            t3 = Thread(target=self._query_apass, args=(results,))
+            threads.append(t3)
         for t in threads:
             t.start()
         for t in threads:
@@ -515,6 +531,7 @@ def split_field( field_center, field_width, nsplit ):
     '''
     Split a large field (of width field_width) into nsplit smaller fields,
      tiled to fill a square of edgesize field_width.
+    Returns an array of pointings
     '''
     fw = field_width/3600. # in degreees
     # assume dec is flat
@@ -724,15 +741,9 @@ class catalog():
         self.modes = []
         self.numcut = 0
         self.bands = ALL_FILTERS
-        self.ignore_apass = self.ignore_sdss = self.ignore_usnob = False
-        if ignore != None:
-            # handles both list of strings and single string form
-            if 'sdss' in ignore:
-                self.ignore_sdss = True
-            if 'usnob' in ignore:
-                self.ignore_usnob = True
-            if 'apass' in ignore:
-                self.ignore_apass = True
+        # this switch controls whether we ignore any catalogs.
+        #  can be list or string in ['usnob','apass','sdss']
+        self.ignore = ignore
         if field_width > self.MAX_SIZE:
             # simply don't allow queries that are too large
             raise ValueError( 'Field is too large. Max allowed: {}"'.format(self.MAX_SIZE) )
@@ -746,7 +757,7 @@ class catalog():
         Requires records in 2MASS + (SDSS and/or USNOB1).
         '''
         ra,dec = self.field_center
-        q = online_catalog_query( ra, dec, self.field_width )
+        q = online_catalog_query( ra, dec, self.field_width, ignore=self.ignore )
         mass, sdss, usnob, apass = q.query_all()
         
         object_mags = []
@@ -760,15 +771,15 @@ class catalog():
                     raise ValueError( 'No matches found!' )
                 mass = mass[ input_matches>=0 ]
             # match sdss, apass, usnob objects to 2mass objects
-            if sdss != None and not self.ignore_sdss:
+            if sdss != None:
                 sdss_matches, tmp = identify_matches( mass[:,:2], sdss[:,:2] )
             else:
                 sdss_matches = -9999*np.ones(len(mass), dtype='int')
-            if apass != None and not self.ignore_apass:
+            if apass != None:
                 apass_matches, tmp = identify_matches( mass[:,:2], apass[:,:2] )
             else:
                 apass_matches = -9999*np.ones(len(mass), dtype='int')
-            if usnob != None and not self.ignore_usnob:
+            if usnob != None:
                 usnob_matches, tmp = identify_matches( mass[:,:2], usnob[:,:2] )
             else:
                 usnob_matches = -9999*np.ones(len(mass), dtype='int')

@@ -800,8 +800,8 @@ class catalog():
         # send all of these matches to the CPU pool to get modeled
         objects = zip( modes, object_mags )
         pool = mp.Pool( processes=N_CORES )
-        #results = pool.map( fit_sources, objects )
-        results = [fit_sources(obj) for obj in objects]
+        results = pool.map( fit_sources, objects )
+        #results = [fit_sources(obj) for obj in objects]
         pool.close()
         
         # now go through results and construct the final values

@@ -770,7 +770,7 @@ class catalog():
                 # if input coordinates were given, ignore all other objects
                 input_matches, tmp = identify_matches( mass[:,:2], self.input_coords )
                 if not np.sum( np.isfinite(tmp) ):
-                    raise ValueError( 'No matches found!' )
+                    raise ValueError( 'No matches to input objects found!' )
                 mass = mass[ input_matches>=0 ]
             # match sdss, apass, usnob objects to 2mass objects
             if sdss != None:
@@ -939,7 +939,7 @@ def calc_zeropoint( input_coords, catalog_coords, input_mags, catalog_mags, clip
         
 
 
-def zeropoint( input_file, band, output_file=None ):
+def zeropoint( input_file, band, output_file=None, usnob_thresh=15 ):
     '''
     Calculate <band> zeropoint for stars in <input_file>.
     
@@ -948,6 +948,7 @@ def zeropoint( input_file, band, output_file=None ):
      Header/comments should be #-demarcated, and all non-commented rows in the
      file should be numbers only.
     If an output_file name is given, it saves the entire catalog to that file.
+    usnob_thresh: the minium number of APASS+SDSS sources required before starting to use USNOB sources
     '''
     # load the data and produce a catalog
     in_data = np.loadtxt( input_file )
@@ -956,10 +957,16 @@ def zeropoint( input_file, band, output_file=None ):
     field_center, field_width = find_field( input_coords )
     c = catalog( field_center, max(field_width), input_coords=input_coords )
     
-    # identify which band this is for and calculate the zeropoint
-    cat_index = FILTER_PARAMS[band][-1]
-    cat_mags = c.SEDs[:, cat_index]
-    zp, mad, matches = calc_zeropoint( input_coords, c.coords, input_mags, cat_mags )
+    band_index = FILTER_PARAMS[band][-1]
+    # check to see whether we need to use USNOB sources
+    mask = np.array(c.modes)<2
+    if sum( mask ) >= usnob_thresh:
+        cat_mags = c.SEDs[:, band_index][mask]
+        cat_coords = c.coords[mask]
+    else:
+        cat_mags = c.SEDs[:, band_index]
+        cat_coords = c.coords        
+    zp, mad, matches = calc_zeropoint( input_coords, cat_coords, input_mags, cat_mags, return_zps=False )
     
     if output_file:
         # save matched catalog to file

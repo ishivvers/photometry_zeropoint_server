@@ -105,6 +105,7 @@ def web_plots_SDSS( size=1800., coords=COORDS, ignore='sdss' ):
     onesig_errs = { 'u':[], 'g':[], 'r':[], 'i':[], 'z':[] }
     
     bins = np.linspace(-1, 1, 20)
+    axs = []
     for ifield,field_center in enumerate(coords):
         print 'starting {}\n\n\n'.format(field_center)
         ccc = COLORS[ifield]
@@ -119,6 +120,7 @@ def web_plots_SDSS( size=1800., coords=COORDS, ignore='sdss' ):
         model_err = []
         models = []
         matched_modes = []
+        matched_J = []
         for i,match in enumerate(matches):
             if match >= 0:
                 model_matches.append( c.SEDs[match] )
@@ -126,6 +128,7 @@ def web_plots_SDSS( size=1800., coords=COORDS, ignore='sdss' ):
                 model_err.append( c.model_errors[match] )
                 models.append( c.models[match] )
                 matched_modes.append( c.modes[match] )
+                matched_J.append( c.SEDs[match][gs.ALL_FILTERS.index('J')] )
         model_matches = np.array(model_matches)
         obs_matches = np.array(obs_matches)
         matched_modes = np.array(matched_modes)
@@ -158,7 +161,6 @@ def web_plots_SDSS( size=1800., coords=COORDS, ignore='sdss' ):
         plt.close()
         plt.ioff()
         '''
-        
         for i,band in enumerate(['u','g','r','i','z']):
             # the histogram
             i_filt = gs.FILTER_PARAMS[band][-1]
@@ -174,9 +176,17 @@ def web_plots_SDSS( size=1800., coords=COORDS, ignore='sdss' ):
             
             # the scatterplot
             err = obs_matches[:,i] - model_matches[:,i_filt]
+
+            #EDIT: a 3d scatterplot with x=chi2, y=Jmag, z=error
             
             plt.figure(i+5)
-            plt.scatter( model_err, np.abs(err), alpha=.5, marker='+', c=ccc )
+            if not ifield:
+                ax = fig.add_subplot(111, projection='3d')
+                axs.append(ax)
+            else:
+                ax = axs[ifield]
+            ax.scatter3D( model_err, matched_J, err, alpha=.5, c=ccc )
+            #plt.scatter( model_err, np.abs(err), alpha=.5, marker='+', c=ccc )
             dbins = np.array( [0, .25, .5, 1., 1.5, 2.5] )
             delt_bin = dbins[1:]-dbins[:-1]
             inbin = np.digitize( model_err, dbins )
@@ -191,17 +201,18 @@ def web_plots_SDSS( size=1800., coords=COORDS, ignore='sdss' ):
             # extend the medians out to the edges for interpolation
             x = [dbins[0]] + x + [dbins[-1]]
             onesigs = [onesigs[0]] + onesigs + [onesigs[-1]]
-            plt.scatter( x, onesigs, label="(%.2f, %.2f)" %(field_center[0], field_center[1]),\
-                        s=50, alpha=.9, c=ccc )
+            #plt.scatter( x, onesigs, label="(%.2f, %.2f)" %(field_center[0], field_center[1]),\
+            #            s=50, alpha=.9, c=ccc )
             f_med = interp1d(x, onesigs)
             x2 = np.linspace(min(x), max(x), 1000)
-            plt.plot( x2, f_med(x2), '--', alpha=.9, c=ccc)
+            #plt.plot( x2, f_med(x2), '--', alpha=.9, c=ccc)
             
             onesig_errs[band].append(onesigs)
             
             # a histogram of errors per model
             plt.figure(12)
             plt.scatter( models, err, alpha=.25, marker='.', c=ccc )
+
     
     
     for i,band in enumerate(['u','g','r','i','z']):

@@ -1,5 +1,5 @@
 This is a photometric zeropoint server, using cataloged
- magnitudes from SDSS, USNOB1, and 2-MASS to either 
+ magnitudes from SDSS, USNOB1, APASS and 2-MASS to either 
  lookup or calculate the SEDs for sources detected in an
  image, then using their cataloged/calculated magnitudes
  in a passband to calculate an estimate of the photometric

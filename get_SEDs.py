@@ -22,7 +22,7 @@ from threading import Thread
 from time import time, strftime
 from urllib2 import urlopen
 import pickle
-
+import pymongo as pm
 import multiprocessing as mp
 N_CORES = mp.cpu_count()  # use all the cpus you have
 
@@ -66,6 +66,95 @@ FILTER_PARAMS =  {'u': (3551., 8.6387e-9, 558.4, 0), 'g': (4686., 4.9607e-9, 115
 # ONLINE CATALOG MANAGEMENT
 ############################################
 
+class local_catalog_query():
+    '''
+    A class to handle all queries of a local MongoDB catalog server.
+    The main function, query_all(), queries and cross-matches all
+     catalogs at a sky region.
+
+    MORE DESCRIPTION HERE
+    '''
+    def __init__(self, ra, dec, size=10., ignore=None ):
+        self.coords = [ra, dec] #decimal degrees
+        self.size = size  #arcseconds
+        try:
+            r = Popen('hostname',shell=True, stdout=PIPE, stderr=PIPE)
+            host,err = r.communicate()
+            if host.strip() == 'UCBerk':
+                self.DB = pm.MongoClient().photometry
+            else:
+                self.DB = pm.MongoClient(host='classy.astro.berkeley.edu').photometry
+            assert self.DB.authenticate('phot','ometry')
+        except:
+            raise IOError('cannot connect to database')
+
+    def _query_db(self, coll, bands):
+        '''
+        Query the collection <coll> for results in <bands>,
+         returning them as a numpy array.
+        Note: a maxDistance of 30 is about 1"
+        '''
+        p = { "type" : "Point", "coordinates" : self.coords }
+        curs = coll.find( {"coords": {"$near": {"$geometry":p, "$maxDistance":30.0*self.size}}} )
+        n_results = curs.count()
+        results = []
+        for i in xrange(n_results):
+            obj = curs.next()
+            row = []
+            for j,b in enumerate(bands):
+                try:
+                    row.append(obj[b])
+                    try:
+                        row.append(obj[b+'_err'])
+                    except:
+                        row.append(0.0)
+                except:
+                    pass
+            results.append(row)
+        return np.array(results)
+
+    def _query_crossmatch(self, ignore=[]):
+        '''
+        Query for all sources at location, crossmatched to the 2MASS coordinates.
+        Note: a maxDistance of 30 is about 1"
+        '''
+        # first get the 2mass sources
+        p = { "type" : "Point", "coordinates" : self.coords }
+        curs = DB.mass.find( {"coords": {"$near": {"$geometry":p, "$maxDistance":30.0*self.size}}} )
+        mass, sdss, usnob, apass = [], [], [], []
+        while True:
+            try:
+                obj = curs.next()
+            except StopIteration:
+                break
+            try:
+                mass.append([obj[thing] for thing in ['ra','dec','J','J_err','H','H_err','K','K_err']])
+            except:
+                # hit here if this source doesn't have all passbands
+                continue
+            querycoords = [obj['ra'], obj['dec']]
+            query = {"coords": {"$near": {"$geometry":{"type": "Point", "coordinates": querycoords}, "$maxDistance":30.0}}}
+            # now query other catalogs
+            things = [['ra','dec','u','u_err','g','g_err','r','r_err','i','i_err','z','z_err'],
+                      ['ra','dec','B','B_err','V','V_err',"g'","g'_err","r'","r'_err","i'","i'_err"],
+                      ['ra','dec','B','R']]
+            for j,cat in enumerate(['sdss','apass','usnob']):
+                if cat in ignore:
+                    continue
+                ocurs = DB[cat].find( query )
+                try:
+                    obj = ocurs.next()
+                    cmd = cat+".append( [obj[thing] for thing in things[j]] )"
+                    exec(cmd)
+                except:
+                    cmd = cat+".append( None )"
+                    exec(cmd)
+        return mass, sdss, apass, usnob
+
+
+
+
+
 class online_catalog_query():
     '''
     A class to handle all queries of remote catalogs.
@@ -74,7 +163,7 @@ class online_catalog_query():
      
     Standard usage:
      q = online_catalog_query( ra, dec, field_size ) #ra,dec in decimal degrees, field_size in arcsec
-     Mass, SDSS, USNOB1 = q.query_all()
+     Mass, SDSS, USNOB1, APASS = q.query_all()
      # OR #
      Mass = q.query_2mass() #same for all catalogs
      

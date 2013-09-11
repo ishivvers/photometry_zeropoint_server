@@ -95,7 +95,7 @@ def compare_to_SDSS( field_center, field_width, clip=True, colors=COLORS ):
     plt.show()
 
 
-def web_plots_SDSS( size=1800., coords=COORDS, ignore='sdss' ):
+def web_plots_SDSS( size=1800., coords=COORDS, ignore='sdss', local=True ):
     '''
     produce web plot and error report for SDSS predicted from USNOB
     '''
@@ -111,7 +111,7 @@ def web_plots_SDSS( size=1800., coords=COORDS, ignore='sdss' ):
         
         q = gs.online_catalog_query( field_center[0], field_center[1], size )
         sdss = q.query_sdss()
-        c = gs.catalog( field_center, size, ignore=ignore )
+        c = gs.catalog( field_center, size, ignore=ignore, local=local )
         matches,tmp = gs.identify_matches( sdss[:,:2], c.coords )
         
         model_matches = []
@@ -387,7 +387,7 @@ def compare_to_UKIDSS( field_center, field_size, fn='data/ukidss_all.csv', clip=
     plt.show()
 
 
-def web_plots_UKIDSS( size=1800., coords=COORDS, ignore='sdss' ):
+def web_plots_UKIDSS( size=1800., coords=COORDS, ignore='sdss', local=True ):
     '''
     Produce web plots for UKIDSS y compared to model y
     '''
@@ -408,7 +408,7 @@ def web_plots_UKIDSS( size=1800., coords=COORDS, ignore='sdss' ):
         print 'Starting field %.2f, %.2f\n\n' %(field_center[0], field_center[1])
         ccc = COLORS[i_field]
         
-        c = gs.catalog( field_center, size, input_coords=input_coords, ignore=ignore )
+        c = gs.catalog( field_center, size, input_coords=input_coords, ignore=ignore, local=True )
         matches,tmp = gs.identify_matches( input_coords, c.coords )
         
         i_y = gs.FILTER_PARAMS['y'][-1]
@@ -582,7 +582,7 @@ def compare_to_APASS( field_center, field_size, fn='data/apass_all.csv', ignore_
     plt.show()
 
 
-def web_plots_APASS( size=1800, ignore_sdss=True, coords=COORDS ):
+def web_plots_APASS( size=1800, ignore_sdss=True, coords=COORDS, local=True ):
     '''
     Produce plots and errors from comparisions with APASS data.
     '''
@@ -602,7 +602,7 @@ def web_plots_APASS( size=1800, ignore_sdss=True, coords=COORDS ):
     
     for i_field,field_center in enumerate(coords):
         
-        c = gs.catalog( field_center, size, input_coords=input_coords, ignore_sdss=ignore_sdss )
+        c = gs.catalog( field_center, size, input_coords=input_coords, ignore_sdss=ignore_sdss, local=local )
         matches,tmp = gs.identify_matches( input_coords, c.coords )
         
         model_matches = []
@@ -853,7 +853,7 @@ def compare_to_Stetson( field, ignore='sdss', clip=True, colors=['b','g','r','or
 
 
 FIELDS = ['L112', 'L113', 'L92', 'L95', 'PG0231'] #'IC1613', 
-def web_plots_Stetson( fields=FIELDS, ignore='sdss', colors=['b','g','r','orange','grey','yellow'] ):
+def web_plots_Stetson( fields=FIELDS, ignore='sdss', colors=['b','g','r','orange','grey','yellow'], local=True ):
     
     medians = { 'B':[], 'V':[], 'R':[], 'I':[] }
     mads = { 'B':[], 'V':[], 'R':[], 'I':[] }
@@ -868,7 +868,7 @@ def web_plots_Stetson( fields=FIELDS, ignore='sdss', colors=['b','g','r','orange
         obs = data[:,1:] #B,V,R,I
     
         field_center,field_size = gs.find_field( input_coords )
-        c = gs.catalog( field_center, max(field_size), input_coords=input_coords, ignore=ignore )
+        c = gs.catalog( field_center, max(field_size), input_coords=input_coords, ignore=ignore, local=local )
         matches,tmp = gs.identify_matches( input_coords, c.coords )
         
         model_matches = []

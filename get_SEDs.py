@@ -5,7 +5,7 @@ of online catalogs (USNOB1, 2MASS, SDSS) and synthetic photometry.
 
 To Do:
 - add proper distutils setup
-
+- debug and fix database pulls
 '''
 
 
@@ -136,19 +136,27 @@ class local_catalog_query():
             querycoords = [obj['ra'], obj['dec']]
             query = {"coords": {"$near": {"$geometry":{"type": "Point", "coordinates": querycoords}, "$maxDistance":30.0}}}
             # now query other catalogs
-            things = [['ra','dec','u','u_err','g','g_err','r','r_err','i','i_err','z','z_err'],
-                      ['ra','dec','B','B_err','V','V_err',"g'","g'_err","r'","r'_err","i'","i'_err"],
-                      ['ra','dec','B','R']]
-            for j,cat in enumerate(['sdss','apass','usnob']):
-                if self.ignore==None or cat not in self.ignore:
-                    ocurs = self.DB[cat].find( query )
+            if self.ignore==None or 'sdss' not in self.ignore:
+                    ocurs = self.DB['sdss'].find( query )
                     try:
                         obj = ocurs.next()
-                        cmd = cat+".append( [obj[thing] for thing in things[j]] )"
-                        exec(cmd)
+                        sdss.append( [obj[thing] for thing in ['ra','dec','u','u_err','g','g_err','r','r_err','i','i_err','z','z_err']] )
                     except:
-                        cmd = cat+".append( None )"
-                        exec(cmd)
+                        sdss.append(None)
+            if self.ignore==None or 'apass' not in self.ignore:
+                    ocurs = self.DB['apass'].find( query )
+                    try:
+                        obj = ocurs.next()
+                        apass.append( [obj[thing] for thing in ['ra','dec',"g'","g'_err","r'","r'_err","i'","i'_err",'B','B_err','V','V_err']] )
+                    except:
+                        apass.append(None)
+            if self.ignore==None or 'usnob' not in self.ignore:
+                    ocurs = self.DB['usnob'].find( query )
+                    try:
+                        obj = ocurs.next()
+                        usnob.append( [obj['ra'],obj['dec'],obj['B'],0.3,obj['R'],0.3,0.0,0.0] )
+                    except:
+                        apass.append(None)
         return mass, sdss, apass, usnob
 
 
@@ -936,8 +944,8 @@ class catalog():
         # send all of these matches to the CPU pool to get modeled
         objects = zip( modes, object_mags )
         pool = mp.Pool( processes=N_CORES )
-        results = pool.map( fit_sources, objects )
-        #results = [fit_sources(obj) for obj in objects]
+        #results = pool.map( fit_sources, objects )
+        results = [fit_sources(obj) for obj in objects]
         pool.close()
         
         # now go through results and construct the final values

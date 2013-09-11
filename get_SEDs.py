@@ -75,6 +75,9 @@ class local_catalog_query():
     MORE DESCRIPTION HERE
     '''
     def __init__(self, ra, dec, size=10., ignore=None ):
+        # the interal lat/long definition is slightly different from RA/Dec
+        if ra > 180.0:
+            ra = ra-360.0
         self.coords = [ra, dec] #decimal degrees
         self.size = size  #arcseconds
         try:
@@ -88,32 +91,7 @@ class local_catalog_query():
         except:
             raise IOError('cannot connect to database')
         self.ignore = ignore
-
-    def _query_db(self, coll, bands):
-        '''
-        Query the collection <coll> for results in <bands>,
-         returning them as a numpy array.
-        Note: a maxDistance of 30 is about 1"
-        '''
-        p = { "type" : "Point", "coordinates" : self.coords }
-        curs = coll.find( {"coords": {"$near": {"$geometry":p, "$maxDistance":30.0*self.size}}} )
-        n_results = curs.count()
-        results = []
-        for i in xrange(n_results):
-            obj = curs.next()
-            row = []
-            for j,b in enumerate(bands):
-                try:
-                    row.append(obj[b])
-                    try:
-                        row.append(obj[b+'_err'])
-                    except:
-                        row.append(0.0)
-                except:
-                    pass
-            results.append(row)
-        return np.array(results)
-
+    
     def query_crossmatch(self):
         '''
         Query for all sources at location, crossmatched to the 2MASS coordinates.

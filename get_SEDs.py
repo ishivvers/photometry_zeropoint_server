@@ -5,7 +5,7 @@ of online catalogs (USNOB1, 2MASS, SDSS) and synthetic photometry.
 
 To Do:
 - add proper distutils setup
-
+- debug and fix database pulls
 '''
 
 
@@ -137,19 +137,28 @@ class local_catalog_query():
             querycoords = [obj['ra'], obj['dec']]
             query = {"coords": {"$near": {"$geometry":{"type": "Point", "coordinates": querycoords}, "$maxDistance":30.0}}}
             # now query other catalogs
-            things = [['ra','dec','u','u_err','g','g_err','r','r_err','i','i_err','z','z_err'],
-                      ['ra','dec','B','B_err','V','V_err',"g'","g'_err","r'","r'_err","i'","i'_err"],
-                      ['ra','dec','B','R']]
-            for j,cat in enumerate(['sdss','apass','usnob']):
-                if self.ignore==None or cat not in self.ignore:
-                    ocurs = self.DB[cat].find( query )
+            if self.ignore==None or 'sdss' not in self.ignore:
+                    ocurs = self.DB['sdss'].find( query )
                     try:
                         obj = ocurs.next()
-                        cmd = cat+".append( [obj[thing] for thing in things[j]] )"
-                        exec(cmd)
+                        sdss.append( [obj[thing] for thing in ['ra','dec','u','u_err','g','g_err','r','r_err','i','i_err','z','z_err']] )
                     except:
-                        cmd = cat+".append( None )"
-                        exec(cmd)
+                        sdss.append(None)
+            if self.ignore==None or 'apass' not in self.ignore:
+                    ocurs = self.DB['apass'].find( query )
+                    try:
+                        obj = ocurs.next()
+                        apass.append( [obj[thing] for thing in ['ra','dec',"g'","g'_err","r'","r'_err","i'","i'_err",'B','B_err','V','V_err']] )
+                    except:
+                        apass.append(None)
+            if self.ignore==None or 'usnob' not in self.ignore:
+                    ocurs = self.DB['usnob'].find( query )
+                    try:
+                        obj = ocurs.next()
+                        # use an error of 0.3 for all USNOB observations, and ignore any I-band observations (I, I_sigma = 0.0)
+                        usnob.append( [obj['ra'],obj['dec'],obj['B'],0.3,obj['R'],0.3,0.0,0.0] )
+                    except:
+                        usnob.append(None)
         return mass, sdss, apass, usnob
 
 
@@ -430,7 +439,7 @@ class online_catalog_query():
                 dec = float(char + tmp[1].split(char)[1])
             
                 # magnitudes and errors
-                #  in order: B, B_sigma, R, R_sigma
+                #  in order: B, B_sigma, R, R_sigma, I, I_sigma
                 Bs, Rs = [], []
                 for i in range(obs_count):
                     tmp = line[1 + 2*i]
@@ -725,6 +734,7 @@ def choose_model( obs, mask, models=MODELS, allow_cut=False ):
         metric = sum_sqr_err/(len(mags) - 2)
     return (best_model[1:] + C, C, best_model[0], metric, i_cut )
 
+
 def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
     '''
     Wrapper function for choose_model to facilitate multiprocessor use in catalog.produce_catalog()
@@ -854,7 +864,7 @@ class catalog():
         if self.local:
             # use the local database to get objects
             q = local_catalog_query( ra, dec, size=self.field_width, ignore=self.ignore )
-            mass, sdss, usnob, apass = q.query_crossmatch()
+            mass, sdss, apass, usnob = q.query_crossmatch()
 
             object_mags = []
             modes = []
@@ -865,13 +875,13 @@ class catalog():
                 #  of all objects present in 2mass and (sdss or apass or usnob)
                 #  Preference ranking: 2MASS + (SDSS > APASS > USNOB)
                 for i,obj in enumerate(mass):
-                    if (sdss[i] != None):
+                    if (len(sdss) != 0) and (sdss[i] != None):
                         obs = np.hstack( (np.array(sdss[i])[2:], obj[2:]) )
                         mode = 0
-                    elif (apass[i] != None):
+                    elif (len(apass) != 0) and (apass[i] != None):
                         obs = np.hstack( (np.array(apass[i])[2:], obj[2:]) )
                         mode = 1
-                    elif (usnob[i] != None):
+                    elif (len(usnob) != 0) and (usnob[i] != None):
                         obs = np.hstack( (np.array(usnob[i])[2:], obj[2:]) )
                         mode = 2
                     else:

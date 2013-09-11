@@ -111,7 +111,10 @@ class local_catalog_query():
             except:
                 # hit here if this source doesn't have all passbands
                 continue
-            querycoords = [obj['ra'], obj['dec']]
+            if obj['ra'] > 180.0:
+                querycoords = [obj['ra']-360.0, obj['dec']]
+            else:
+                querycoords = [obj['ra'], obj['dec']]
             query = {"coords": {"$near": {"$geometry":{"type": "Point", "coordinates": querycoords}, "$maxDistance":30.0}}}
             # now query other catalogs
             if self.ignore==None or 'sdss' not in self.ignore:

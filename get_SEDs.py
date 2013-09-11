@@ -22,7 +22,7 @@ from threading import Thread
 from time import time, strftime
 from urllib2 import urlopen
 import pickle
-
+import pymongo as pm
 import multiprocessing as mp
 #N_CORES = mp.cpu_count()  # use all the cpus you have
 N_CORES = 24
@@ -67,6 +67,95 @@ FILTER_PARAMS =  {'u': (3551., 8.6387e-9, 558.4, 0), 'g': (4686., 4.9607e-9, 115
 # ONLINE CATALOG MANAGEMENT
 ############################################
 
+class local_catalog_query():
+    '''
+    A class to handle all queries of a local MongoDB catalog server.
+    The main function, query_all(), queries and cross-matches all
+     catalogs at a sky region.
+
+    MORE DESCRIPTION HERE
+    '''
+    def __init__(self, ra, dec, size=10., ignore=None ):
+        self.coords = [ra, dec] #decimal degrees
+        self.size = size  #arcseconds
+        try:
+            r = Popen('hostname',shell=True, stdout=PIPE, stderr=PIPE)
+            host,err = r.communicate()
+            if host.strip() == 'UCBerk':
+                self.DB = pm.MongoClient().photometry
+            else:
+                self.DB = pm.MongoClient(host='classy.astro.berkeley.edu').photometry
+            assert self.DB.authenticate('phot','ometry')
+        except:
+            raise IOError('cannot connect to database')
+        self.ignore = ignore
+
+    def _query_db(self, coll, bands):
+        '''
+        Query the collection <coll> for results in <bands>,
+         returning them as a numpy array.
+        Note: a maxDistance of 30 is about 1"
+        '''
+        p = { "type" : "Point", "coordinates" : self.coords }
+        curs = coll.find( {"coords": {"$near": {"$geometry":p, "$maxDistance":30.0*self.size}}} )
+        n_results = curs.count()
+        results = []
+        for i in xrange(n_results):
+            obj = curs.next()
+            row = []
+            for j,b in enumerate(bands):
+                try:
+                    row.append(obj[b])
+                    try:
+                        row.append(obj[b+'_err'])
+                    except:
+                        row.append(0.0)
+                except:
+                    pass
+            results.append(row)
+        return np.array(results)
+
+    def query_crossmatch(self):
+        '''
+        Query for all sources at location, crossmatched to the 2MASS coordinates.
+        Note: a maxDistance of 30 is about 1"
+        '''
+        # first get the 2mass sources
+        p = { "type" : "Point", "coordinates" : self.coords }
+        curs = self.DB.mass.find( {"coords": {"$near": {"$geometry":p, "$maxDistance":30.0*self.size}}} )
+        mass, sdss, usnob, apass = [], [], [], []
+        while True:
+            try:
+                obj = curs.next()
+            except StopIteration:
+                break
+            try:
+                mass.append([obj[thing] for thing in ['ra','dec','J','J_err','H','H_err','K','K_err']])
+            except:
+                # hit here if this source doesn't have all passbands
+                continue
+            querycoords = [obj['ra'], obj['dec']]
+            query = {"coords": {"$near": {"$geometry":{"type": "Point", "coordinates": querycoords}, "$maxDistance":30.0}}}
+            # now query other catalogs
+            things = [['ra','dec','u','u_err','g','g_err','r','r_err','i','i_err','z','z_err'],
+                      ['ra','dec','B','B_err','V','V_err',"g'","g'_err","r'","r'_err","i'","i'_err"],
+                      ['ra','dec','B','R']]
+            for j,cat in enumerate(['sdss','apass','usnob']):
+                if self.ignore==None or cat not in self.ignore:
+                    ocurs = self.DB[cat].find( query )
+                    try:
+                        obj = ocurs.next()
+                        cmd = cat+".append( [obj[thing] for thing in things[j]] )"
+                        exec(cmd)
+                    except:
+                        cmd = cat+".append( None )"
+                        exec(cmd)
+        return mass, sdss, apass, usnob
+
+
+
+
+
 class online_catalog_query():
     '''
     A class to handle all queries of remote catalogs.
@@ -75,7 +164,7 @@ class online_catalog_query():
      
     Standard usage:
      q = online_catalog_query( ra, dec, field_size ) #ra,dec in decimal degrees, field_size in arcsec
-     Mass, SDSS, USNOB1 = q.query_all()
+     Mass, SDSS, USNOB1, APASS = q.query_all()
      # OR #
      Mass = q.query_2mass() #same for all catalogs
      
@@ -729,7 +818,7 @@ class catalog():
     MAX_SIZE = 7200 # max size of largest single query
     ERR_CUT  = (8., 5., 2.5)   # maximum reduced chi^2 to keep a fit (SDSS, APASS, USNOB)
     
-    def __init__( self, field_center, field_width, input_coords=None, ignore=None ):
+    def __init__( self, field_center, field_width, input_coords=None, ignore=None, local=True ):
         self.field_center = field_center
         self.field_width = field_width
         if input_coords != None:
@@ -747,6 +836,7 @@ class catalog():
         # this switch controls whether we ignore any catalogs.
         #  can be list or string in ['usnob','apass','sdss']
         self.ignore = ignore
+        self.local = local
         if field_width > self.MAX_SIZE:
             # simply don't allow queries that are too large
             raise ValueError( 'Field is too large. Max allowed: {}"'.format(self.MAX_SIZE) )
@@ -760,54 +850,87 @@ class catalog():
         Requires records in 2MASS + (SDSS and/or USNOB1).
         '''
         ra,dec = self.field_center
-        q = online_catalog_query( ra, dec, self.field_width, ignore=self.ignore )
-        mass, sdss, usnob, apass = q.query_all()
         
-        object_mags = []
-        modes = []
-        object_coords = []
-        if mass != None:
-            if self.input_coords != None:
-                # if input coordinates were given, ignore all other objects
-                input_matches, tmp = identify_matches( mass[:,:2], self.input_coords )
-                if not np.sum( np.isfinite(tmp) ):
-                    raise ValueError( 'No matches to input objects found!' )
-                mass = mass[ input_matches>=0 ]
-            # match sdss, apass, usnob objects to 2mass objects
-            if sdss != None:
-                sdss_matches, tmp = identify_matches( mass[:,:2], sdss[:,:2] )
-            else:
-                sdss_matches = -9999*np.ones(len(mass), dtype='int')
-            if apass != None:
-                apass_matches, tmp = identify_matches( mass[:,:2], apass[:,:2] )
-            else:
-                apass_matches = -9999*np.ones(len(mass), dtype='int')
-            if usnob != None:
-                usnob_matches, tmp = identify_matches( mass[:,:2], usnob[:,:2] )
-            else:
-                usnob_matches = -9999*np.ones(len(mass), dtype='int')
+        if self.local:
+            # use the local database to get objects
+            q = local_catalog_query( ra, dec, size=self.field_width, ignore=self.ignore )
+            mass, sdss, usnob, apass = q.query_crossmatch()
+
+            object_mags = []
+            modes = []
+            object_coords = []
+            if len(mass) > 0:
+                mass = np.array(mass)
+                # Go through 2mass objects and assemble a catalog
+                #  of all objects present in 2mass and (sdss or apass or usnob)
+                #  Preference ranking: 2MASS + (SDSS > APASS > USNOB)
+                for i,obj in enumerate(mass):
+                    if (sdss[i] != None):
+                        obs = np.hstack( (np.array(sdss[i])[2:], obj[2:]) )
+                        mode = 0
+                    elif (apass[i] != None):
+                        obs = np.hstack( (np.array(apass[i])[2:], obj[2:]) )
+                        mode = 1
+                    elif (usnob[i] != None):
+                        obs = np.hstack( (np.array(usnob[i])[2:], obj[2:]) )
+                        mode = 2
+                    else:
+                        continue
+                    object_mags.append( obs )
+                    modes.append( mode )
+                    object_coords.append( obj[:2] )
+        else:
+            # use online queries to get objects
+            q = online_catalog_query( ra, dec, boxsize=self.field_width, ignore=self.ignore )
+            mass, sdss, usnob, apass = q.query_all()
             
-            # Go through 2mass objects and assemble a catalog
-            #  of all objects present in 2mass and (sdss or apass or usnob)
-            #  Preference ranking: 2MASS + (SDSS > APASS > USNOB)
-            for i,obj in enumerate(mass):
-                if (sdss_matches[i]>=0):
-                    i_sdss = sdss_matches[i]
-                    obs = np.hstack( (sdss[i_sdss][2:], obj[2:]) )
-                    mode = 0
-                elif (apass_matches[i]>=0):
-                    i_apass = apass_matches[i]
-                    obs = np.hstack( (apass[i_apass][2:], obj[2:]) )
-                    mode = 1
-                elif (usnob_matches[i]>=0):
-                    i_usnob = usnob_matches[i]
-                    obs = np.hstack( (usnob[i_usnob][2:], obj[2:]) )
-                    mode = 2
+            object_mags = []
+            modes = []
+            object_coords = []
+            if mass != None:
+                if self.input_coords != None:
+                    # if input coordinates were given, ignore all other objects
+                    input_matches, tmp = identify_matches( mass[:,:2], self.input_coords )
+                    if not np.sum( np.isfinite(tmp) ):
+                        raise ValueError( 'No matches to input objects found!' )
+                    mass = mass[ input_matches>=0 ]
+                # match sdss, apass, usnob objects to 2mass objects
+                if sdss != None:
+                    sdss_matches, tmp = identify_matches( mass[:,:2], sdss[:,:2] )
                 else:
-                    continue
-                object_mags.append( obs )
-                modes.append( mode )
-                object_coords.append( obj[:2] )
+                    sdss_matches = -9999*np.ones(len(mass), dtype='int')
+                if apass != None:
+                    apass_matches, tmp = identify_matches( mass[:,:2], apass[:,:2] )
+                else:
+                    apass_matches = -9999*np.ones(len(mass), dtype='int')
+                if usnob != None:
+                    usnob_matches, tmp = identify_matches( mass[:,:2], usnob[:,:2] )
+                else:
+                    usnob_matches = -9999*np.ones(len(mass), dtype='int')
+                
+                # Go through 2mass objects and assemble a catalog
+                #  of all objects present in 2mass and (sdss or apass or usnob)
+                #  Preference ranking: 2MASS + (SDSS > APASS > USNOB)
+                for i,obj in enumerate(mass):
+                    if (sdss_matches[i]>=0):
+                        i_sdss = sdss_matches[i]
+                        obs = np.hstack( (sdss[i_sdss][2:], obj[2:]) )
+                        mode = 0
+                    elif (apass_matches[i]>=0):
+                        i_apass = apass_matches[i]
+                        obs = np.hstack( (apass[i_apass][2:], obj[2:]) )
+                        mode = 1
+                    elif (usnob_matches[i]>=0):
+                        i_usnob = usnob_matches[i]
+                        obs = np.hstack( (usnob[i_usnob][2:], obj[2:]) )
+                        mode = 2
+                    else:
+                        continue
+                    object_mags.append( obs )
+                    modes.append( mode )
+                    object_coords.append( obj[:2] )
+
+        
         if len(object_coords) < 1:
             raise ValueError( "No good sources in this field!" )
         

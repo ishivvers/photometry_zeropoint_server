@@ -154,9 +154,10 @@ class local_catalog_query():
                     ocurs = self.DB['usnob'].find( query )
                     try:
                         obj = ocurs.next()
+                        # use an error of 0.3 for all USNOB observations, and ignore any I-band observations (I, I_sigma = 0.0)
                         usnob.append( [obj['ra'],obj['dec'],obj['B'],0.3,obj['R'],0.3,0.0,0.0] )
                     except:
-                        apass.append(None)
+                        usnob.append(None)
         return mass, sdss, apass, usnob
 
 
@@ -437,7 +438,7 @@ class online_catalog_query():
                 dec = float(char + tmp[1].split(char)[1])
             
                 # magnitudes and errors
-                #  in order: B, B_sigma, R, R_sigma
+                #  in order: B, B_sigma, R, R_sigma, I, I_sigma
                 Bs, Rs = [], []
                 for i in range(obs_count):
                     tmp = line[1 + 2*i]
@@ -732,6 +733,7 @@ def choose_model( obs, mask, models=MODELS, allow_cut=False ):
         metric = sum_sqr_err/(len(mags) - 2)
     return (best_model[1:] + C, C, best_model[0], metric, i_cut )
 
+
 def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
     '''
     Wrapper function for choose_model to facilitate multiprocessor use in catalog.produce_catalog()
@@ -861,7 +863,7 @@ class catalog():
         if self.local:
             # use the local database to get objects
             q = local_catalog_query( ra, dec, size=self.field_width, ignore=self.ignore )
-            mass, sdss, usnob, apass = q.query_crossmatch()
+            mass, sdss, apass, usnob = q.query_crossmatch()
 
             object_mags = []
             modes = []
@@ -872,13 +874,13 @@ class catalog():
                 #  of all objects present in 2mass and (sdss or apass or usnob)
                 #  Preference ranking: 2MASS + (SDSS > APASS > USNOB)
                 for i,obj in enumerate(mass):
-                    if (sdss[i] != None):
+                    if (len(sdss) != 0) and (sdss[i] != None):
                         obs = np.hstack( (np.array(sdss[i])[2:], obj[2:]) )
                         mode = 0
-                    elif (apass[i] != None):
+                    elif (len(apass) != 0) and (apass[i] != None):
                         obs = np.hstack( (np.array(apass[i])[2:], obj[2:]) )
                         mode = 1
-                    elif (usnob[i] != None):
+                    elif (len(usnob) != 0) and (usnob[i] != None):
                         obs = np.hstack( (np.array(usnob[i])[2:], obj[2:]) )
                         mode = 2
                     else:
@@ -944,8 +946,8 @@ class catalog():
         # send all of these matches to the CPU pool to get modeled
         objects = zip( modes, object_mags )
         pool = mp.Pool( processes=N_CORES )
-        #results = pool.map( fit_sources, objects )
-        results = [fit_sources(obj) for obj in objects]
+        results = pool.map( fit_sources, objects )
+        #results = [fit_sources(obj) for obj in objects]
         pool.close()
         
         # now go through results and construct the final values

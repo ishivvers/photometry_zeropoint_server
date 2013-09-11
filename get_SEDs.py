@@ -24,8 +24,8 @@ from urllib2 import urlopen
 import pickle
 import pymongo as pm
 import multiprocessing as mp
-#N_CORES = mp.cpu_count()  # use all the cpus you have
-N_CORES = 24
+N_CORES = mp.cpu_count()  # use all the cpus you have
+#N_CORES = 24
 
 # use the __file__ variable to point to the static files
 #  Note: __file__ points to the location of this file,

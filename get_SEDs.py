@@ -129,7 +129,24 @@ class local_catalog_query():
                     ocurs = self.DB['apass'].find( query )
                     try:
                         obj = ocurs.next()
-                        apass.append( [obj[thing] for thing in ['ra','dec',"g'","g'_err","r'","r'_err","i'","i'_err",'B','B_err','V','V_err']] )
+                        # allow sources with 3-5 APASS observations, marking the others as 0.0
+                        keys = obj.keys()
+                        row = [ obj['ra'], obj['dec'] ]
+                        for band in ["g'","r'","i'",'B','V']:
+                            if (band in keys) and (band+'_err' in keys):
+                                # some apass errors are listed as < 0, so here we fix that
+                                row += [obj[band], abs(obj[band+"_err"])]
+                            elif (band in keys):
+                                # for missing errors, adopt an error of 0.15mag
+                                row += [obj[band], 0.15]
+                            else:
+                                # just put placeholders of 0.0 for missing bands (cut later)
+                                row += [0.0, 0.0]
+                        if len( [r for r in row[::2] if r!=0] ) < 3:
+                            # don't bother with any sources that have fewer than 3 observations
+                            apass.append(None)
+                        else:
+                            apass.append(row)
                     except:
                         apass.append(None)
             if self.ignore==None or 'usnob' not in self.ignore:
@@ -196,7 +213,7 @@ class online_catalog_query():
         '''
         out = []
         for line in s.split('\n')[1:]:
-            # discard any sources that have more than one two observations
+            # discard sources that had few observations
             if line.count('NA') > 4:
                 continue
             try:
@@ -736,7 +753,7 @@ def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
         for i,imask in enumerate([1,2,3,6,7]):
             if obs[2*i] == 0:
                 mask[imask] = 0
-        obs = obs[ obs>0 ]
+        obs = obs[ obs!=0 ]
         allow_cut = True
     elif mode == 2: # usnob+2mass
         mask = [0,0,0,0,0, 0, 1,0,1,1, 1,1,1]

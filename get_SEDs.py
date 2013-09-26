@@ -76,11 +76,11 @@ class local_catalog_query():
     MORE DESCRIPTION HERE
     '''
     def __init__(self, ra, dec, size=10., ignore=None ):
-        # the interal lat/long definition is slightly different from RA/Dec
+        # the internal lat/long definition is slightly different from RA/Dec
         if ra > 180.0:
             ra = ra-360.0
         self.coords = [ra, dec] #decimal degrees
-        self.size = size  #arcseconds
+        self.size = size  #arcseconds, the total width of the bounding box
         try:
             r = Popen('hostname',shell=True, stdout=PIPE, stderr=PIPE)
             host,err = r.communicate()
@@ -98,9 +98,16 @@ class local_catalog_query():
         Query for all sources at location, crossmatched to the 2MASS coordinates.
         Note: a maxDistance of 30 is about 1"
         '''
-        # first get the 2mass sources
-        p = { "type" : "Point", "coordinates" : self.coords }
-        curs = self.DB.mass.find( {"coords": {"$near": {"$geometry":p, "$maxDistance":30.0*self.size}}} )
+        # first get the 2mass sources by defining a bounding box and querying within it
+        # Build the box by doing approximate spherical geometry (dec ~ flat, ra is not)
+        raddec = np.deg2rad( self.coords[1] )
+        dr = (self.size/2)/np.cos(raddec) # in arcseconds
+        dd = self.size/2                  # in arcseconds
+        box = { "type" : "Polygon", "coordinates" : [ [ [self.coords[0]-dr/3600, self.coords[1]-dd/3600],
+                                                        [self.coords[0]-dr/3600, self.coords[1]+dd/3600],
+                                                        [self.coords[0]+dr/3600, self.coords[1]-dd/3600],
+                                                        [self.coords[0]+dr/3600, self.coords[1]+dd/3600] ] ] }
+        curs = self.DB.mass.find( {"coords": {"$geoWithin": {"$geometry":box}} } )
         mass, sdss, usnob, apass = [], [], [], []
         while True:
             try:

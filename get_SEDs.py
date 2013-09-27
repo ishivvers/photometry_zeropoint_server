@@ -5,7 +5,6 @@ of online catalogs (USNOB1, 2MASS, SDSS) and synthetic photometry.
 
 To Do:
 - add proper distutils setup
-- debug and fix database pulls
 '''
 
 
@@ -105,8 +104,8 @@ class local_catalog_query():
         dd = self.size/2                  # in arcseconds
         box = { "type" : "Polygon", "coordinates" : [ [ [self.coords[0]-dr/3600, self.coords[1]-dd/3600],
                                                         [self.coords[0]-dr/3600, self.coords[1]+dd/3600],
-                                                        [self.coords[0]+dr/3600, self.coords[1]-dd/3600],
-                                                        [self.coords[0]+dr/3600, self.coords[1]+dd/3600] ] ] }
+                                                        [self.coords[0]+dr/3600, self.coords[1]+dd/3600],
+                                                        [self.coords[0]+dr/3600, self.coords[1]-dd/3600] ] ] }
         curs = self.DB.mass.find( {"coords": {"$geoWithin": {"$geometry":box}} } )
         mass, sdss, usnob, apass = [], [], [], []
         while True:
@@ -804,8 +803,11 @@ def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
         #  is predicted by the rest of the observed bands, and put those results into f_err as below
         #full_errs[i_cut_band] = f_err[mode][cut_band]( min(err, f_err[mode]['range'][1]) )
         full_errs[i_cut_band] = 0.5
+        if return_cut:
+            # update the mask to show that this band was cut
+            mask[i_cut_band] = False
         
-    return ( sed, full_errs, err, index )
+    return ( sed, full_errs, err, index, mask )
 
 
 ############################################
@@ -840,13 +842,14 @@ class catalog():
             self.input_coords = np.array(input_coords)
         else:
             self.input_coords = input_coords
-        self.coords = []
-        self.SEDs = []
-        self.full_errors = []
-        self.model_errors = []
-        self.models = []
-        self.modes = []
-        self.numcut = 0
+        self.coords = []        # ra, dec
+        self.SEDs = []          # both modeled and observed mags
+        self.full_errors = []   # errors for each entry in SEDs
+        self.model_errors = []  # model-fit error metric
+        self.models = []        # model index for each object
+        self.modes = []         # 0: SDSS+2MASS, 1: APASS+2MASS, 2: USNOB+2MASS
+        self.observed = []      # boolean masks for each entry in SEDs; True -> observation
+        self.numcut = 0         # number of objects discarded as over the model-fit error cut
         self.bands = ALL_FILTERS
         # this switch controls whether we ignore any catalogs.
         #  can be list or string in ['usnob','apass','sdss']
@@ -969,6 +972,7 @@ class catalog():
                 self.model_errors.append( row[2] )
                 self.models.append( row[3] )
                 self.modes.append( modes[i] )
+                self.observed.append( row[4] )
         # keep the multi-dimensional data in numpy arrays
         self.coords = np.array(self.coords)
         self.SEDs = np.array(self.SEDs)

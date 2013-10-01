@@ -3,8 +3,6 @@ Library to produce a catalog of fully-populated SEDs and calculating
 zeropoints for any arbitrary location on the sky, using a combination 
 of online catalogs (USNOB1, 2MASS, SDSS) and synthetic photometry.
 
-To Do:
-- add proper distutils setup
 '''
 
 
@@ -981,7 +979,7 @@ class catalog():
     
     
     def save_catalog( self, file_name ):
-        save_catalog( self.coords, self.SEDs, self.full_errors, self.modes, file_name )
+        save_catalog( self.coords, self.SEDs, self.full_errors, self.modes, self.observed, file_name )
     
     def get_source( self, ra, dec ):
         '''
@@ -1002,25 +1000,32 @@ class catalog():
             return out_dict
     
 
-def save_catalog( coordinates, seds, errors, modes, file_name ):
+def save_catalog( coordinates, seds, errors, modes, observed, file_name ):
     '''
     Save an output ASCII file of the catalog.
     file_name: output file to create
     '''
     
     fff = open(file_name,'w')
-    fff.write('# Observed/modeled SEDs produced by get_SEDs.py \n' +
-              '# Generated: {}\n'.format(strftime("%H:%M %B %d, %Y")) +
-              '#  Mode = 0: -> B,V,R,I,y modeled from SDSS and 2-MASS\n' +
-              '#       = 1: -> u,y,R,I modeled from APASS and 2-MASS\n' +
-              '#       = 2: -> u,g,r,i,z,y,V,I modeled from USNOB-1 and 2-MASS\n' +
-              "# " + "RA".ljust(10) + "DEC".ljust(12) + "".join([f.ljust(8) for f in ALL_FILTERS]) + \
-              "".join([(f+"_err").ljust(8) for f in ALL_FILTERS]) + "Mode\n")
+    headstr = '# Observed/modeled SEDs produced by get_SEDs.py \n' +\
+              '# Generated: {}\n'.format(strftime("%H:%M %B %d, %Y")) +\
+              '#  Mode = 0: -> Model fit to SDSS and 2-MASS\n' +\
+              '#       = 1: -> Model fit to APASS and 2-MASS\n' +\
+              '#       = 2: -> Model fit to USNOB-1 and 2-MASS\n' +\
+              "# " + "RA".ljust(10) + "DEC".ljust(12)
+    for f in ALL_FILTERS:
+        headstr += f.ljust(8)
+        headstr += (f+"_err").ljust(8)
+        headstr += (f+"_obs").ljust(6)
+    headstr += "Mode\n"
+    fff.write(headstr)
     for i,row in enumerate(seds):
-        row_txt = "".join([ s.ljust(12) for s in map(lambda x: "%.6f"%x, coordinates[i]) ]) +\
-                  "".join([ s.ljust(8) for s in map(lambda x: "%.3f"%x, row) ]) +\
-                  "".join([ s.ljust(8) for s in map(lambda x: "%.3f"%x, errors[i]) ]) +\
-                  str(modes[i])+"\n"
+        row_txt = ("%.6f" % coordinates[i][0]).ljust(12) + ("%.6f" % coordinates[i][1]).ljust(12)
+        for j,band in enumerate(ALL_FILTERS):
+            row_txt += ("%.3f" % row[j]).ljust(8) +\
+                       ("%.3f" % errors[i][j]).ljust(8) +\
+                       ("%d" % int(observed[i][j])).ljust(6)
+        row_txt += str(modes[i])+"\n"
         fff.write( row_txt )
     fff.close()
 

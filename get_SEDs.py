@@ -103,7 +103,8 @@ class local_catalog_query():
         box = { "type" : "Polygon", "coordinates" : [ [ [self.coords[0]-dr/3600, self.coords[1]-dd/3600],
                                                         [self.coords[0]-dr/3600, self.coords[1]+dd/3600],
                                                         [self.coords[0]+dr/3600, self.coords[1]+dd/3600],
-                                                        [self.coords[0]+dr/3600, self.coords[1]-dd/3600] ] ] }
+                                                        [self.coords[0]+dr/3600, self.coords[1]-dd/3600],
+                                                        [self.coords[0]-dr/3600, self.coords[1]-dd/3600] ] ] }
         curs = self.DB.mass.find( {"coords": {"$geoWithin": {"$geometry":box}} } )
         mass, sdss, usnob, apass = [], [], [], []
         while True:

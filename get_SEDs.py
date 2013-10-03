@@ -76,8 +76,8 @@ class local_catalog_query():
         # the internal lat/long definition is slightly different from RA/Dec
         if ra > 180.0:
             ra = ra-360.0
-        self.coords = [ra, dec] #decimal degrees
-        self.size = size  #arcseconds, the total width of the bounding box
+        self.coords = [float(ra), float(dec)] #decimal degrees
+        self.size = float(size)  #arcseconds, the total width of the bounding box
         try:
             r = Popen('hostname',shell=True, stdout=PIPE, stderr=PIPE)
             host,err = r.communicate()
@@ -98,8 +98,8 @@ class local_catalog_query():
         # first get the 2mass sources by defining a bounding box and querying within it
         # Build the box by doing approximate spherical geometry (dec ~ flat, ra is not)
         raddec = np.deg2rad( self.coords[1] )
-        dr = (3600*self.size/2)/np.cos(raddec) # in degrees
-        dd = 3600*self.size/2
+        dr = (self.size/2/3600)/np.cos(raddec) # in degrees
+        dd = self.size/2/3600
         ral = self.coords[0]-dr
         rah = self.coords[0]+dr
         decl = self.coords[1]-dd

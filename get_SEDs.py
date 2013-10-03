@@ -98,12 +98,17 @@ class local_catalog_query():
         # first get the 2mass sources by defining a bounding box and querying within it
         # Build the box by doing approximate spherical geometry (dec ~ flat, ra is not)
         raddec = np.deg2rad( self.coords[1] )
-        dr = (self.size/2)/np.cos(raddec) # in arcseconds
-        dd = self.size/2                  # in arcseconds
-        box = { "type" : "Polygon", "coordinates" : [ [ [self.coords[0]-dr/3600, self.coords[1]-dd/3600],
-                                                        [self.coords[0]-dr/3600, self.coords[1]+dd/3600],
-                                                        [self.coords[0]+dr/3600, self.coords[1]+dd/3600],
-                                                        [self.coords[0]+dr/3600, self.coords[1]-dd/3600] ] ] }
+        dr = (3600*self.size/2)/np.cos(raddec) # in degrees
+        dd = 3600*self.size/2
+        ral = self.coords[0]-dr
+        rah = self.coords[0]+dr
+        decl = self.coords[1]-dd
+        dech = self.coords[1]+dd
+        if ral < -180: ral = ral+360
+        if rah > 180: rah = rah-360
+        box = { "type" : "Polygon", "coordinates" : [ [ [ral, decl], [rah, decl],
+                                                        [rah, dech], [ral, dech],
+                                                        [ral, decl] ] ] }
         curs = self.DB.mass.find( {"coords": {"$geoWithin": {"$geometry":box}} } )
         mass, sdss, usnob, apass = [], [], [], []
         while True:

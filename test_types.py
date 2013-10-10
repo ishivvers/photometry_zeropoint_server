@@ -13,7 +13,6 @@ d = np.load('all_models.npy')
 t = np.loadtxt('pickles_uk.ascii',dtype=str)
 types_dict = {}
 for mod in map(int, d[1:,0]):
-    print mod, t[mod]
     types_dict[mod] = re.findall('[A-Z]', t[mod][1])[0]
 
 
@@ -190,8 +189,11 @@ for l in lines:
         print 'passing on line:\n',l
         continue
     try:
-        c = gs.catalog( ra, dec, size=10 )
+        c = gs.catalog( (ra, dec), 10.0 )
     except:
+        print 'no match found at',ra,dec
+        continue
+    if len(c.coords)<1:
         print 'no match found at',ra,dec
         continue
     dists = np.sqrt( (ra-c.coords[:,0])**2 + (dec-c.coords[:,1])**2 )

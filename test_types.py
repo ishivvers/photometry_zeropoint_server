@@ -12,9 +12,10 @@ TYPES = ['O','B','A','F','G','K','M']
 d = np.load('all_models.npy')
 t = np.loadtxt('pickles_uk.ascii',dtype=str)
 types_dict = {}
-for mod in map(int, d[:,0]):
-    types_dict[mod] = re.findall('[A-Z]', t[mod])[0]
-    
+for mod in map(int, d[1:,0]):
+    print mod, t[mod]
+    types_dict[mod] = re.findall('[A-Z]', t[mod][1])[0]
+
 
 def parse_ra( inn ):
     '''
@@ -173,7 +174,7 @@ def phmsdms(hmsdms):
 
 
 # first calculate the type for all that we can
-fskiff = '/Users/isaac/Working/observations/catalogs/skiff_typed_catalog/mktypes.dat'
+fskiff = '/o/ishivvers/zeropoint_code/data/mktypes.dat'
 lines = open(fskiff,'r').readlines()
 objs = []
 for l in lines:
@@ -193,7 +194,7 @@ for l in lines:
     except:
         print 'no match found at',ra,dec
         continue
-    dists = np.sqrt( (ra-c.coords[:,0])**2 + (dec=c.coords[:,1])**2 )
+    dists = np.sqrt( (ra-c.coords[:,0])**2 + (dec-c.coords[:,1])**2 )
     match = np.argmin(dists)
     mod_type = types_dict[c.models[match]]
     mod_mag = c.SEDs[match][ ALL_FILTERS.index(band) ]
@@ -210,10 +211,13 @@ for obj in objs:
     # model type
     j = TYPES.index( obj[3] )
     confusion[i,j] += 1
+np.save('confusion.np',confusion)
+
 plt.imshow( confusion, interpolation='nearest', cmap='Greys' )
 plt.colorbar()
 plt.xticks( range(len(TYPES)), TYPES )
 plt.yticks( range(len(TYPES)), TYPES )
 plt.xlabel('True Type')
 plt.ylabel('Model Type')
+plt.savefig('confusion_matrix.png')
 plt.show()

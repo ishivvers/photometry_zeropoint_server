@@ -79,7 +79,7 @@ class local_catalog_query():
         self.size = float(size)  #arcseconds, the total width of the bounding box
         try:
             self.DB = pm.MongoClient().photometry
-            assert self.DB.authenticate('phot','ometry')
+            # assert self.DB.authenticate('phot','ometry')
         except:
             raise IOError('cannot connect to database')
         self.ignore = ignore

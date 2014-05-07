@@ -3,9 +3,6 @@ Library to produce a catalog of fully-populated SEDs and calculating
 zeropoints for any arbitrary location on the sky, using a combination 
 of online catalogs (USNOB1, 2MASS, SDSS) and synthetic photometry.
 
-To Do:
-- add proper distutils setup
-- debug and fix database pulls
 '''
 
 
@@ -24,8 +21,7 @@ from urllib2 import urlopen
 import pickle
 import pymongo as pm
 import multiprocessing as mp
-N_CORES = mp.cpu_count()  # use all the cpus you have
-#N_CORES = 24
+N_CORES = mp.cpu_count()/2  # use half the cpus you have
 
 # use the __file__ variable to point to the static files
 #  Note: __file__ points to the location of this file,
@@ -76,18 +72,13 @@ class local_catalog_query():
     MORE DESCRIPTION HERE
     '''
     def __init__(self, ra, dec, size=10., ignore=None ):
-        # the interal lat/long definition is slightly different from RA/Dec
+        # the internal lat/long definition is slightly different from RA/Dec
         if ra > 180.0:
             ra = ra-360.0
-        self.coords = [ra, dec] #decimal degrees
-        self.size = size  #arcseconds
+        self.coords = [float(ra), float(dec)] #decimal degrees
+        self.size = float(size)  #arcseconds, the total width of the bounding box
         try:
-            r = Popen('hostname',shell=True, stdout=PIPE, stderr=PIPE)
-            host,err = r.communicate()
-            if host.strip() == 'UCBerk':
-                self.DB = pm.MongoClient().photometry
-            else:
-                self.DB = pm.MongoClient(host='classy.astro.berkeley.edu').photometry
+            self.DB = pm.MongoClient().photometry
             assert self.DB.authenticate('phot','ometry')
         except:
             raise IOError('cannot connect to database')
@@ -98,9 +89,21 @@ class local_catalog_query():
         Query for all sources at location, crossmatched to the 2MASS coordinates.
         Note: a maxDistance of 30 is about 1"
         '''
-        # first get the 2mass sources
-        p = { "type" : "Point", "coordinates" : self.coords }
-        curs = self.DB.mass.find( {"coords": {"$near": {"$geometry":p, "$maxDistance":30.0*self.size}}} )
+        # first get the 2mass sources by defining a bounding box and querying within it
+        # Build the box by doing approximate spherical geometry (dec ~ flat, ra is not)
+        raddec = np.deg2rad( self.coords[1] )
+        dr = (self.size/2/3600)/np.cos(raddec) # in degrees
+        dd = self.size/2/3600
+        ral = self.coords[0]-dr
+        rah = self.coords[0]+dr
+        decl = self.coords[1]-dd
+        dech = self.coords[1]+dd
+        if ral < -180: ral = ral+360
+        if rah > 180: rah = rah-360
+        box = { "type" : "Polygon", "coordinates" : [ [ [ral, decl], [rah, decl],
+                                                        [rah, dech], [ral, dech],
+                                                        [ral, decl] ] ] }
+        curs = self.DB.mass.find( {"coords": {"$geoWithin": {"$geometry":box}} } )
         mass, sdss, usnob, apass = [], [], [], []
         while True:
             try:
@@ -797,8 +800,11 @@ def fit_sources( inn, f_err=ERR_FUNCTIONS, return_cut=False ):
         #  is predicted by the rest of the observed bands, and put those results into f_err as below
         #full_errs[i_cut_band] = f_err[mode][cut_band]( min(err, f_err[mode]['range'][1]) )
         full_errs[i_cut_band] = 0.5
+        if return_cut:
+            # update the mask to show that this band was cut
+            mask[i_cut_band] = False
         
-    return ( sed, full_errs, err, index )
+    return ( sed, full_errs, err, index, mask )
 
 
 ############################################
@@ -814,7 +820,7 @@ class catalog():
      bands filled in through modeling.
     
     Standard usage:
-     c = catalog( (ra, dec), field_size )  # with ra, dec in degrees and field_size in arcseconds
+     c = catalog( ra, dec, field_size )  # with ra, dec in degrees and field_size in arcseconds
      catalog_coords = c.coords
      catalog_SEDs = c.SEDs
     
@@ -826,20 +832,21 @@ class catalog():
     MAX_SIZE = 7200 # max size of largest single query
     ERR_CUT  = (8., 5., 2.5)   # maximum reduced chi^2 to keep a fit (SDSS, APASS, USNOB)
     
-    def __init__( self, field_center, field_width, input_coords=None, ignore=None, local=True ):
-        self.field_center = field_center
+    def __init__( self, ra, dec, field_width, input_coords=None, ignore=None, local=True ):
+        self.field_center = (float(ra), float(dec))
         self.field_width = field_width
         if input_coords != None:
             self.input_coords = np.array(input_coords)
         else:
             self.input_coords = input_coords
-        self.coords = []
-        self.SEDs = []
-        self.full_errors = []
-        self.model_errors = []
-        self.models = []
-        self.modes = []
-        self.numcut = 0
+        self.coords = []        # ra, dec
+        self.SEDs = []          # both modeled and observed mags
+        self.full_errors = []   # errors for each entry in SEDs
+        self.model_errors = []  # model-fit error metric
+        self.models = []        # model index for each object
+        self.modes = []         # 0: SDSS+2MASS, 1: APASS+2MASS, 2: USNOB+2MASS
+        self.observed = []      # boolean masks for each entry in SEDs; True -> observation
+        self.numcut = 0         # number of objects discarded as over the model-fit error cut
         self.bands = ALL_FILTERS
         # this switch controls whether we ignore any catalogs.
         #  can be list or string in ['usnob','apass','sdss']
@@ -960,8 +967,9 @@ class catalog():
                 self.SEDs.append( row[0] )
                 self.full_errors.append( row[1] )
                 self.model_errors.append( row[2] )
-                self.models.append( row[3] )
+                self.models.append( int(row[3]) )
                 self.modes.append( modes[i] )
+                self.observed.append( row[4] )
         # keep the multi-dimensional data in numpy arrays
         self.coords = np.array(self.coords)
         self.SEDs = np.array(self.SEDs)
@@ -970,7 +978,7 @@ class catalog():
     
     
     def save_catalog( self, file_name ):
-        save_catalog( self.coords, self.SEDs, self.full_errors, self.modes, file_name )
+        save_catalog( self.coords, self.SEDs, self.full_errors, self.modes, self.observed, file_name )
     
     def get_source( self, ra, dec ):
         '''
@@ -991,25 +999,32 @@ class catalog():
             return out_dict
     
 
-def save_catalog( coordinates, seds, errors, modes, file_name ):
+def save_catalog( coordinates, seds, errors, modes, observed, file_name ):
     '''
     Save an output ASCII file of the catalog.
     file_name: output file to create
     '''
     
     fff = open(file_name,'w')
-    fff.write('# Observed/modeled SEDs produced by get_SEDs.py \n' +
-              '# Generated: {}\n'.format(strftime("%H:%M %B %d, %Y")) +
-              '#  Mode = 0: -> B,V,R,I,y modeled from SDSS and 2-MASS\n' +
-              '#       = 1: -> u,y,R,I modeled from APASS and 2-MASS\n' +
-              '#       = 2: -> u,g,r,i,z,y,V,I modeled from USNOB-1 and 2-MASS\n' +
-              "# " + "RA".ljust(10) + "DEC".ljust(12) + "".join([f.ljust(8) for f in ALL_FILTERS]) + \
-              "".join([(f+"_err").ljust(8) for f in ALL_FILTERS]) + "Mode\n")
+    headstr = '# Observed/modeled SEDs produced by get_SEDs.py \n' +\
+              '# Generated: {}\n'.format(strftime("%H:%M %B %d, %Y")) +\
+              '#  Mode = 0: -> Model fit to SDSS and 2-MASS\n' +\
+              '#       = 1: -> Model fit to APASS and 2-MASS\n' +\
+              '#       = 2: -> Model fit to USNOB-1 and 2-MASS\n' +\
+              "# " + "RA".ljust(10) + "DEC".ljust(12)
+    for f in ALL_FILTERS:
+        headstr += f.ljust(8)
+        headstr += (f+"_err").ljust(8)
+        headstr += (f+"_obs").ljust(6)
+    headstr += "Mode\n"
+    fff.write(headstr)
     for i,row in enumerate(seds):
-        row_txt = "".join([ s.ljust(12) for s in map(lambda x: "%.6f"%x, coordinates[i]) ]) +\
-                  "".join([ s.ljust(8) for s in map(lambda x: "%.3f"%x, row) ]) +\
-                  "".join([ s.ljust(8) for s in map(lambda x: "%.3f"%x, errors[i]) ]) +\
-                  str(modes[i])+"\n"
+        row_txt = ("%.6f" % coordinates[i][0]).ljust(12) + ("%.6f" % coordinates[i][1]).ljust(12)
+        for j,band in enumerate(ALL_FILTERS):
+            row_txt += ("%.3f" % row[j]).ljust(8) +\
+                       ("%.3f" % errors[i][j]).ljust(8) +\
+                       ("%d" % int(observed[i][j])).ljust(6)
+        row_txt += str(modes[i])+"\n"
         fff.write( row_txt )
     fff.close()
 

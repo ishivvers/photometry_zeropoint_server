@@ -4,6 +4,7 @@ A script to produce a density map of our catalog coverage.
 
 import get_SEDs as gs
 import matplotlib.pyplot as plt
+imort matplotlib
 from matplotlib import ticker
 from astro.allskymap import AllSkyMap
 import numpy as np
@@ -141,50 +142,61 @@ np.save('density_2.npy',density_2)
 
 # now make the plots
 X,Y = np.meshgrid(ra_array, dec_array)
+values = np.logspace(0, 5, 6)
+
+font = {'weight' : 'bold',
+        'size'   : 16}
+matplotlib.rc('font', **font)
 
 plt.figure(figsize=(12,7))
 m = AllSkyMap(projection='hammer')
+plt.title('SDSS Coverage', y=1.05)
+matplotlib.rcParams['text.color'] = '#C21A00'
 m.drawparallels(np.arange(-75,76,15), linewidth=0.5, dashes=[1,2],
-                labels=[1,0,0,0], fontsize=9)
+                labels=[1,0,0,0], fontsize=12)
 m.drawmeridians(np.arange(-150,151,30), linewidth=0.5, dashes=[1,2])
 # Label a subset of meridians.
 lons = np.arange(-150,151,30)
-m.label_meridians(lons, fontsize=9, vnudge=1,
+m.label_meridians(lons, fontsize=12, vnudge=1,
                   halign='left', hnudge=-1)  # hnudge<0 shifts to right
-m.contourf(X.T, Y.T, density_0, latlon=True, cmap=plt.cm.binary, locator=ticker.LogLocator())
+matplotlib.rcParams['text.color'] = 'k'
+m.contourf(X.T, Y.T, density_0, values, latlon=True, cmap=plt.cm.bone_r, locator=ticker.LogLocator())
 cb = m.colorbar()
-cb.set_label('Sources per square degree')
-plt.title('Mode 1 Coverage')
-if save: plt.savefig('mode1.png')
+cb.set_label(r'Sources per deg$^2$')
+if save: plt.savefig('mode1.png', transparent=True)
 
 plt.figure(figsize=(12,7))
 m = AllSkyMap(projection='hammer')
+plt.title('SDSS and APASS Coverage', y=1.05)
+matplotlib.rcParams['text.color'] = '#C21A00'
 m.drawparallels(np.arange(-75,76,15), linewidth=0.5, dashes=[1,2],
-                labels=[1,0,0,0], fontsize=9)
+                labels=[1,0,0,0], fontsize=12)
 m.drawmeridians(np.arange(-150,151,30), linewidth=0.5, dashes=[1,2])
 # Label a subset of meridians.
 lons = np.arange(-150,151,30)
-m.label_meridians(lons, fontsize=9, vnudge=1,
+m.label_meridians(lons, fontsize=12, vnudge=1,
                   halign='left', hnudge=-1)  # hnudge<0 shifts to right
-m.contourf(X.T, Y.T, density_1, latlon=True, cmap=plt.cm.binary, locator=ticker.LogLocator())
+matplotlib.rcParams['text.color'] = 'k'
+m.contourf(X.T, Y.T, density_1, values, latlon=True, cmap=plt.cm.bone_r, locator=ticker.LogLocator())
 cb = m.colorbar()
-cb.set_label('Sources per square degree')
-plt.title('Modes 1+2 Coverage')
-if save: plt.savefig('mode12.png')
+cb.set_label(r'Sources per deg$^2$')
+if save: plt.savefig('mode12.png', transparent=True)
 
 plt.figure(figsize=(12,7))
 m = AllSkyMap(projection='hammer')
+plt.title('SDSS, APASS, and USNOB Coverage', y=1.05)
+matplotlib.rcParams['text.color'] = '#C21A00'
 m.drawparallels(np.arange(-75,76,15), linewidth=0.5, dashes=[1,2],
-                labels=[1,0,0,0], fontsize=9)
+                labels=[1,0,0,0], fontsize=12)
 m.drawmeridians(np.arange(-150,151,30), linewidth=0.5, dashes=[1,2])
 # Label a subset of meridians.
 lons = np.arange(-150,151,30)
-m.label_meridians(lons, fontsize=9, vnudge=1,
+m.label_meridians(lons, fontsize=12, vnudge=1,
                   halign='left', hnudge=-1)  # hnudge<0 shifts to right
-m.contourf(X.T, Y.T, density_2, latlon=True, cmap=plt.cm.binary, locator=ticker.LogLocator())
+matplotlib.rcParams['text.color'] = 'k'
+m.contourf(X.T, Y.T, density_2, values, latlon=True, cmap=plt.cm.bone_r, locator=ticker.LogLocator())
 cb = m.colorbar()
-cb.set_label('Sources per square degree')
-plt.title('Modes 1+2+3 Coverage')
-if save: plt.savefig('mode123.png')
+cb.set_label(r'Sources per deg$^2$')
+if save: plt.savefig('mode123.png', transparent=True)
 
 plt.show()

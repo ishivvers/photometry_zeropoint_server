@@ -21,8 +21,7 @@ from urllib2 import urlopen
 import pickle
 import pymongo as pm
 import multiprocessing as mp
-N_CORES = mp.cpu_count()  # use all the cpus you have
-#N_CORES = 24
+N_CORES = mp.cpu_count()/2  # use half the cpus you have
 
 # use the __file__ variable to point to the static files
 #  Note: __file__ points to the location of this file,
@@ -79,12 +78,7 @@ class local_catalog_query():
         self.coords = [float(ra), float(dec)] #decimal degrees
         self.size = float(size)  #arcseconds, the total width of the bounding box
         try:
-            r = Popen('hostname',shell=True, stdout=PIPE, stderr=PIPE)
-            host,err = r.communicate()
-            if host.strip() == 'UCBerk':
-                self.DB = pm.MongoClient().photometry
-            else:
-                self.DB = pm.MongoClient(host='classy.astro.berkeley.edu').photometry
+            self.DB = pm.MongoClient().photometry
             assert self.DB.authenticate('phot','ometry')
         except:
             raise IOError('cannot connect to database')
@@ -826,7 +820,7 @@ class catalog():
      bands filled in through modeling.
     
     Standard usage:
-     c = catalog( (ra, dec), field_size )  # with ra, dec in degrees and field_size in arcseconds
+     c = catalog( ra, dec, field_size )  # with ra, dec in degrees and field_size in arcseconds
      catalog_coords = c.coords
      catalog_SEDs = c.SEDs
     
@@ -838,8 +832,8 @@ class catalog():
     MAX_SIZE = 7200 # max size of largest single query
     ERR_CUT  = (8., 5., 2.5)   # maximum reduced chi^2 to keep a fit (SDSS, APASS, USNOB)
     
-    def __init__( self, field_center, field_width, input_coords=None, ignore=None, local=True ):
-        self.field_center = field_center
+    def __init__( self, ra, dec, field_width, input_coords=None, ignore=None, local=True ):
+        self.field_center = (float(ra), float(dec))
         self.field_width = field_width
         if input_coords != None:
             self.input_coords = np.array(input_coords)
@@ -973,7 +967,7 @@ class catalog():
                 self.SEDs.append( row[0] )
                 self.full_errors.append( row[1] )
                 self.model_errors.append( row[2] )
-                self.models.append( row[3] )
+                self.models.append( int(row[3]) )
                 self.modes.append( modes[i] )
                 self.observed.append( row[4] )
         # keep the multi-dimensional data in numpy arrays

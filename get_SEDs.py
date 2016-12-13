@@ -832,7 +832,7 @@ class catalog():
     MAX_SIZE = 7200 # max size of largest single query
     ERR_CUT  = (8., 5., 2.5)   # maximum reduced chi^2 to keep a fit (SDSS, APASS, USNOB)
     
-    def __init__( self, ra, dec, field_width, input_coords=None, ignore=None, local=True ):
+    def __init__( self, ra, dec, field_width, input_coords=None, ignore=None, local=False ):
         self.field_center = (float(ra), float(dec))
         self.field_width = field_width
         if input_coords != None:
